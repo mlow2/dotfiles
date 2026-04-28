@@ -12,7 +12,7 @@ mkdir -p ~/.vim/{undodir,tmp,pack/tpope/start} ~/.local/bin
 git clone https://github.com/tpope/vim-commentary.git ~/.vim/pack/tpope/start/vim-commentary 2>/dev/null || true
 
 # 3. Setup the bare git repository
-git clone --bare https://github.com/YourUsername/dotfiles.git $HOME/.dotfiles.git
+git clone --bare https://github.com-mlow2/mlow2/dotfiles.git $HOME/.dotfiles.git
 function config {
    /usr/bin/git --git-dir=$HOME/.dotfiles.git/ --work-tree=$HOME "$@"
 }
