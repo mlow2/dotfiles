@@ -1,0 +1,64 @@
+# ~/.bash_common
+# Universal interactive bash customizations. Sourced from ~/.bashrc.
+# Safe to commit and share across machines. Anything machine-specific
+# (CUDA paths, API tokens, hostnames) belongs in ~/.bash_secrets instead.
+
+# ---------- bare-repo dotfiles alias ----------
+# Use 'config' anywhere in $HOME to talk to the tracked dotfiles repo.
+#   config status / config add / config commit / config push / config pull
+alias config='/usr/bin/git --git-dir=$HOME/.dotfiles.git/ --work-tree=$HOME'
+
+# ---------- clipboard (OSC 52, works over SSH + tmux passthrough) ----------
+pbcopy() {
+    if [ -t 0 ]; then
+        echo "pbcopy expects stdin" >&2
+        return 1
+    fi
+    base64 | tr -d '\n' | awk '{printf "\033]52;c;%s\a", $0}'
+}
+
+clipfile() {
+    [ $# -eq 1 ] || { echo "usage: clipfile <file>" >&2; return 1; }
+    pbcopy < "$1"
+}
+
+# ---------- git helpers ----------
+# Add tracked + commit in one step
+gac() {
+    if [ -z "$1" ]; then
+        echo "Error: Please provide a commit message." >&2
+        echo "Usage: gac \"your commit message\"" >&2
+        return 1
+    fi
+    git commit -am "$1"
+}
+
+# Amend currently-tracked changes into HEAD without changing the message.
+# Two spellings because muscle memory varies.
+alias gaca='git commit -a --amend --no-edit'
+alias gcaa='git commit -a --amend --no-edit'
+
+# ---------- git-aware prompt (__git_ps1) ----------
+# Source git-sh-prompt from common Debian/Ubuntu locations. Silent if missing.
+if [ -f /usr/lib/git-core/git-sh-prompt ]; then
+    . /usr/lib/git-core/git-sh-prompt
+elif [ -f /etc/bash_completion.d/git-prompt ]; then
+    . /etc/bash_completion.d/git-prompt
+fi
+
+export GIT_PS1_SHOWDIRTYSTATE=1
+export GIT_PS1_SHOWUNTRACKEDFILES=1
+export GIT_PS1_SHOWUPSTREAM="auto"
+
+# Compressed prompt: green CWD basename + cyan git status.
+# Example: my_project|main*+ $
+if type __git_ps1 >/dev/null 2>&1; then
+    export PS1='\[\033[01;32m\]\W\[\033[01;36m\]$(__git_ps1 "|%s")\[\033[00m\]\$ '
+fi
+
+# ---------- per-machine overrides ----------
+# .bash_secrets is intentionally untracked; use it for tokens, CUDA paths, etc.
+[ -f ~/.bash_secrets ] && . ~/.bash_secrets
+
+# ---------- ble.sh (must be sourced LAST to wrap readline) ----------
+[ -f ~/ble.sh/out/ble.sh ] && . ~/ble.sh/out/ble.sh

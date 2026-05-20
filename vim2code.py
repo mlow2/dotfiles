@@ -1,0 +1,173 @@
+import json
+import re
+
+# VSCodeVim has a native toggle for these Vim options.
+VSCODE_BOOL_OPTIONS = {'ignorecase', 'smartcase', 'hlsearch', 'incsearch'}
+
+# Vim options whose effect VSCode (or the VSCodeVim emulator) handles
+# natively, or which simply have no analogue in the JS emulator. The
+# match strips any `=value` suffix and any leading `no` (so e.g.
+# `noswapfile` matches `swapfile`).
+IGNORED_OPTION_NAMES = {
+    'autoindent', 'backup', 'backupdir',
+    'compatible', 'cursorline',
+    'directory',
+    'encoding', 'expandtab',
+    'fileencoding', 'fileformat', 'filetype',
+    'lazyredraw',
+    'mouse',
+    'number', 'relativenumber',
+    'scrolloff', 'shiftwidth', 'showcmd', 'sidescrolloff',
+    'smartindent', 'softtabstop', 'swapfile', 'syntax',
+    'tabstop', 'timeout', 'timeoutlen', 'ttimeout', 'ttimeoutlen',
+    'undodir', 'undofile',
+    'wildmenu',
+}
+
+# Non-`set` Vim statements that VSCode handles natively (or don't apply
+# inside the emulator). Matched exactly after stripping trailing comments.
+IGNORED_STATEMENTS = {
+    'syntax on', 'syntax off', 'syntax enable',
+    'filetype on', 'filetype off',
+    'filetype plugin on', 'filetype plugin off',
+    'filetype indent on', 'filetype indent off',
+    'filetype plugin indent on', 'filetype plugin indent off',
+}
+
+
+def parse_vim_keys(key_string):
+    """
+    Splits a Vim key sequence into an array of strings for VSCode.
+    Example: "<leader>d" -> ["<leader>", "d"]
+    Example: "}zz" -> ["}", "z", "z"]
+    """
+    # Matches anything inside <...> or single characters
+    return re.findall(r'<[^>]+>|.', key_string)
+
+
+def _normalize_option(opt_token):
+    """Strip `=value` suffix and a leading `no` toggle.
+
+    Example: 'noswapfile' -> 'swapfile', 'tabstop=4' -> 'tabstop',
+             'directory=~/x' -> 'directory'.
+    """
+    name = opt_token.split('=', 1)[0]
+    if name.startswith('no') and name[2:] in IGNORED_OPTION_NAMES:
+        return name[2:]
+    return name
+
+
+def translate_vimrc_to_vscode(vimrc_content):
+    settings = {
+        "vim.useSystemClipboard": True,
+    }
+
+    mode_maps = {
+        'nmap': 'vim.normalModeKeyBindings',
+        'nnoremap': 'vim.normalModeKeyBindingsNonRecursive',
+        'vmap': 'vim.visualModeKeyBindings',
+        'vnoremap': 'vim.visualModeKeyBindingsNonRecursive',
+        'imap': 'vim.insertModeKeyBindings',
+        'inoremap': 'vim.insertModeKeyBindingsNonRecursive',
+        'omap': 'vim.operatorPendingModeKeyBindings',
+        'onoremap': 'vim.operatorPendingModeKeyBindingsNonRecursive'
+    }
+
+    for key in mode_maps.values():
+        settings[key] = []
+
+    unsupported_lines = []
+
+    for line_num, line in enumerate(vimrc_content.splitlines(), 1):
+        line = line.strip()
+
+        if not line or line.startswith('"'):
+            continue
+
+        # Strip a trailing inline comment for non-mapping lines so that
+        # 'syntax on   " note' still matches an ignored statement.
+        no_trailing_comment = re.sub(r'\s+".*$', '', line).strip()
+
+        if no_trailing_comment in IGNORED_STATEMENTS:
+            continue
+
+        if line.startswith('let mapleader'):
+            val = line.split('=')[1].strip().strip('"\'')
+            if val == " ":
+                val = "<space>"
+            settings["vim.leader"] = val
+            continue
+
+        if line.startswith('set '):
+            opt = line.split()[1]
+            name = _normalize_option(opt)
+            if name in VSCODE_BOOL_OPTIONS:
+                settings[f"vim.{name}"] = True
+            elif name in IGNORED_OPTION_NAMES:
+                pass
+            else:
+                unsupported_lines.append(f"Line {line_num}: {line}")
+            continue
+
+        # Handle Key Mappings
+        # Regex captures: (mode)(nore)?map (expr)? (before) (after)
+        map_match = re.match(r'^([nvioc])(nore)?map\s+(<expr>\s+)?(\S+)\s+(.+)$', line)
+        
+        if map_match:
+            mode_char, nore, expr, before_str, after_str = map_match.groups()
+            cmd_type = f"{mode_char}{'nore' if nore else ''}map"
+            
+            # Strip trailing inline comments (space followed by ")
+            after_str = re.sub(r'\s+".*$', '', after_str).strip()
+            
+            # Filter out limitations of the VSCodeVim emulator
+            if mode_char == 'c' or expr or '!pbcopy' in after_str or 'getcmdtype' in after_str:
+                unsupported_lines.append(f"Line {line_num}: {line}")
+                continue
+                
+            if cmd_type in mode_maps:
+                # Special handling for command overrides (like :noh)
+                if after_str.startswith(':'):
+                    binding = {
+                        "before": parse_vim_keys(before_str),
+                        "commands": [after_str.replace('<CR>', '')]
+                    }
+                else:
+                    binding = {
+                        "before": parse_vim_keys(before_str),
+                        "after": parse_vim_keys(after_str)
+                    }
+                settings[mode_maps[cmd_type]].append(binding)
+        else:
+            # Catch custom commands, functions, or complex logic
+            unsupported_lines.append(f"Line {line_num}: {line}")
+
+    # Remove empty arrays from the final JSON
+    settings = {k: v for k, v in settings.items() if not (isinstance(v, list) and len(v) == 0)}
+    return settings, unsupported_lines
+
+def generate_output(vimrc_content):
+    settings, unsupported = translate_vimrc_to_vscode(vimrc_content)
+    
+    output = []
+    if unsupported:
+        output.append("// =====================================================================")
+        output.append("// UNSUPPORTED FEATURES FOUND IN .VIMRC:")
+        output.append("// The following lines utilize shell commands, command-line modes,")
+        output.append("// or custom expressions that the VSCode Vim emulator cannot process.")
+        output.append("// =====================================================================")
+        for item in unsupported:
+            output.append(f"// {item}")
+        output.append("")
+        
+    output.append(json.dumps(settings, indent=4))
+    return "\n".join(output)
+
+# ==========================================
+# Example Usage
+# ==========================================
+if __name__ == "__main__":
+    with open(".vimrc", "r") as f:
+        vimrc_text = f.read()
+        
+    print(generate_output(vimrc_text))
