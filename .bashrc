@@ -126,9 +126,9 @@ if ! shopt -oq posix; then
   fi
 fi
 
-# CUDA 13.1
-export PATH=/usr/local/cuda-13.1/bin${PATH:+:${PATH}}
-export LD_LIBRARY_PATH=/usr/local/cuda-13.1/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+# Per-machine paths (CUDA, scratch dirs, API tokens, etc.) live in
+# ~/.bash_secrets, which is sourced from ~/.bash_common (loaded below).
+# See .bash_secrets.example in the repo for a starting template.
 
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
@@ -145,57 +145,12 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 
-# FUNCTIONS GO HERE
-pbcopy() {
-  if [ -t 0 ]; then
-    echo "pbcopy expects stdin" >&2
-    return 1
-  fi
-  base64 | tr -d '\n' | awk '{printf "\033]52;c;%s\a", $0}'
-}
-
-clipfile() {
-  [ $# -eq 1 ] || { echo "usage: clipfile <file>" >&2; return 1; }
-  pbcopy < "$1"
-}
-
-# Git Add, Commit in one command
-gac() {
-    if [ -z "$1" ]; then
-        echo "Error: Please provide a commit message."
-        echo "Usage: gacp \"your commit message\""
-        return 1
-    fi
-    git commit -am "$1" #  && git pp # if pull and push is desired
-}
-# Instantly adds modified files to the very last commit, keeping the same message
-alias gaca='git commit -a --amend --no-edit'
-
-# 1. Source the git-prompt script (Path varies by OS/distro. This is common for Ubuntu/Debian)
-if [ -f /usr/lib/git-core/git-sh-prompt ]; then
-    source /usr/lib/git-core/git-sh-prompt
-elif [ -f /etc/bash_completion.d/git-prompt ]; then
-    source /etc/bash_completion.d/git-prompt
-fi
-
-# 2. Enable extra Git status indicators (optional but recommended)
-export GIT_PS1_SHOWDIRTYSTATE=1      # Shows * for unstaged, + for staged
-export GIT_PS1_SHOWUNTRACKEDFILES=1  # Shows % for untracked files
-export GIT_PS1_SHOWUPSTREAM="auto"   # Shows <, >, =, or <> for sync status
-
-# 3. Set your PS1 prompt to include the Git info AND preserve colors.
-# This creates: Green user@host, Blue path, and Cyan git info.
-# export PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[01;36m\]$(__git_ps1 " (%s)")\[\033[00m\]\$ '
-# Compressed Prompt: green current_dir, cyan git_info.
-# Example output: my_project|main*+ $
-export PS1='\[\033[01;32m\]\W\[\033[01;36m\]$(__git_ps1 "|%s")\[\033[00m\]\$ '
-
-
-# Enable Vim keybindings in Bash (before ble.sh)
+# Enable Vim keybindings in Bash (must precede ble.sh inside .bash_common)
 # set -o vi
 
-# 4. Source ble.sh at the VERY END of your .bashrc
-source ~/ble.sh/out/ble.sh
+# Load universal dotfiles customizations (aliases, prompt, pbcopy, ble.sh, etc.)
+# Keep this sourced LAST so ble.sh wraps readline correctly.
+[ -f ~/.bash_common ] && . ~/.bash_common
 
 # 
 # # 5. ble.sh custom keybindings (Must come AFTER sourcing ble.sh)
