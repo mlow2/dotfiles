@@ -96,9 +96,15 @@ alias l='ls -CF'
 # Instantly adds modified files to the very last commit, keeping the same message
 alias gcaa='git commit -a --amend --no-edit'
 
+# dotfiles: drive the bare repo (~/.dotfiles.git) with $HOME as the work tree
+alias dotfiles='git --git-dir=$HOME/.dotfiles.git --work-tree=$HOME'
+
 # Add an "alert" alias for long running commands.  Use like so:
 #   sleep 10; alert
 alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+
+# claude dangerous mode
+alias claude='claude --dangerously-skip-permissions'
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
@@ -209,3 +215,4 @@ source ~/ble.sh/out/ble.sh
 # ble-bind -m vi_nmap 'Y' 'y$'
 # 
 # 
+export PATH="$HOME/.local/bin:$PATH"
