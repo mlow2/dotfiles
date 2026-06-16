@@ -17,6 +17,24 @@ set shiftwidth=4            " Spaces for each level of (auto)indent
 set expandtab               " Use spaces instead of tabs
 set smartindent             " Auto-indent new lines
 
+" --- Paste (bracketed paste) ---
+" Stop pasted text (Cmd-V) from cascading its indentation or gaining phantom
+" comment leaders. Bracketed paste lets Vim recognize a paste and suspend
+" autoindent/smartindent + formatoptions for its duration. Vim 8+ does this
+" automatically once these terminal codes are set; under tmux/screen they are
+" often not auto-detected, so set them explicitly. (nvim/GUI handle paste
+" natively, so skip them.)
+if has('patch-8.0.0238') && !has('nvim') && !has('gui_running')
+  let &t_BE = "\<Esc>[?2004h"   " enable bracketed paste while Vim runs
+  let &t_BD = "\<Esc>[?2004l"   " disable it on exit
+  let &t_PS = "\<Esc>[200~"     " what the terminal sends just before a paste
+  let &t_PE = "\<Esc>[201~"     " ...and just after
+endif
+" Manual fallback for terminals without bracketed paste: <F2> toggles paste mode.
+if exists('&pastetoggle')
+  set pastetoggle=<F2>
+endif
+
 " --- Search ---
 set ignorecase              " Case-insensitive search...
 set smartcase               " ...unless uppercase letters are used
