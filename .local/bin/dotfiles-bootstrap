@@ -237,9 +237,9 @@ update_repo() {
 }
 
 # Advance local HEAD to TARGET_REF after a successful install pass.
-# Uses --mixed so the index moves with HEAD (uninstalled components
-# remain as 'D' status, which accurately reflects the partial deploy)
-# while the working tree is left untouched.
+# Uses --mixed so the index moves with HEAD (uninstalled components would
+# otherwise show as 'D' status; quiet_optedout_files marks those skip-worktree
+# afterwards) while the working tree is left untouched.
 finalize_head() {
     if [ -z "$TARGET_REF" ] || [ "$TARGET_REF" = "HEAD" ] || [ "$JUST_CLONED" -eq 1 ]; then
         return
@@ -251,6 +251,26 @@ finalize_head() {
 
     log "Advancing HEAD to $TARGET_REF"
     dotfiles reset --mixed --quiet "$TARGET_REF"
+}
+
+# Quiet opted-out components on a partial deploy.
+#
+# After finalize_head the index tracks every component, but this machine only
+# checked out a subset (e.g. zsh box skips the bash files). Absent tracked
+# files show as 'D' in `git status` and, worse, get staged by `git add -u`
+# (the commitall alias), which would push their deletion and break other hosts.
+# Mark absent files skip-worktree so the partial deploy stays quiet and is safe
+# to commit from; clear the bit on files that are present so their edits still
+# track. reset --mixed clears skip-worktree, so this must run after it.
+quiet_optedout_files() {
+    local f
+    while IFS= read -r f; do
+        if [ -e "$HOME/$f" ]; then
+            dotfiles update-index --no-skip-worktree "$f" 2>/dev/null || true
+        else
+            dotfiles update-index --skip-worktree "$f" 2>/dev/null || true
+        fi
+    done < <(dotfiles ls-files)
 }
 
 # Per-file safe checkout.
@@ -575,6 +595,7 @@ main() {
     [ "$INSTALL_CLAUDE" -eq 1 ] && install_claude
 
     finalize_head
+    quiet_optedout_files
 
     print_compat_notes
     log "Done. Open a new shell or run: source ~/.bashrc (or ~/.zshrc)"
