@@ -4,6 +4,13 @@
 # ==========================================
 # Bare-repo dotfiles deploy and update tool. CLI-driven with interactive
 # fallback. Idempotent: first run clones, later runs fetch + fast-forward.
+#
+# Shell-aware: the bash and zsh components are independent. The bash component
+# checks out the tracked rc files (.bashrc/.bash_common); the zsh component
+# only *appends a small guarded block* to your existing ~/.zshrc and never
+# tracks or overwrites it (a ~/.zshrc often holds machine-specific or private
+# setup that must not land in a public repo). Both wire up the `clip` command.
+#
 # Use --help for full usage.
 
 set -euo pipefail
@@ -15,20 +22,48 @@ BACKUP_ROOT="$HOME/.dotfiles_backup"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$BACKUP_ROOT/$TIMESTAMP"
 
+# Marker for the managed block we append to ~/.zshrc (idempotency).
+ZSH_BLOCK_BEGIN="# >>> dotfiles (managed) >>>"
+ZSH_BLOCK_END="# <<< dotfiles (managed) <<<"
+
 # Component flags (0 = skip, 1 = install/update)
 INSTALL_VIM=0
 INSTALL_TMUX=0
 INSTALL_BASH=0
+INSTALL_ZSH=0
+INSTALL_CLAUDE=0
 INTERACTIVE=0
 
 # ---------- helpers ----------
-config() {
+dotfiles() {
     /usr/bin/git --git-dir="$GIT_DIR" --work-tree="$HOME" "$@"
 }
 
 log()  { printf '==> %s\n' "$*"; }
+note() { printf '    %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Login shell basename (bash, zsh, ...). Falls back to the running shell.
+detect_login_shell() {
+    if [ -n "${SHELL:-}" ]; then
+        basename "$SHELL"
+    else
+        basename "$(ps -p "$$" -o comm= 2>/dev/null || echo sh)"
+    fi
+}
+
+# Back up an arbitrary existing file into $BACKUP_DIR, preserving its path
+# under $HOME. Used before we touch untracked, machine-owned files.
+backup_file() {
+    local f="$1" rel dest
+    [ -e "$f" ] || return 0
+    rel="${f#"$HOME"/}"
+    dest="$BACKUP_DIR/$rel"
+    mkdir -p "$(dirname "$dest")"
+    cp -p "$f" "$dest"
+    log "Backed up $f -> $dest"
+}
 
 usage() {
     cat <<'USAGE'
@@ -39,11 +74,16 @@ Usage:
   bootstrap.sh [component ...] Non-interactive; install only the listed components
 
 Components (any combination):
-  --all          Vim + Tmux + Bash
+  --all          Vim + Tmux + (your login shell) + Claude status line
   --vim          .vimrc, ~/.vim plugin dirs, vim-commentary, vscode_vim.jsonc
   --tmux         .tmux.conf
-  --bash         .bashrc, .bash_common, .bash_secrets.example,
-                 ~/.local/bin/pbcopy; seeds ~/.bash_secrets if missing
+  --bash         .bashrc, .bash_common, .bash_secrets.example; clip; seeds
+                 ~/.bash_secrets. Does NOT touch ~/.zshrc.
+  --zsh          Appends a guarded block to ~/.zshrc (PATH for ~/.local/bin +
+                 the `dotfiles` alias) and installs clip. Never tracks/overwrites
+                 ~/.zshrc. Does NOT touch ~/.bashrc. oh-my-zsh safe.
+  --claude       Installs the Claude Code status line script and points
+                 ~/.claude/settings.json at it (Claude need not be installed yet).
   --interactive  Force interactive prompts even when other flags are passed
   --help, -h     Show this help and exit
 
@@ -58,13 +98,15 @@ Behavior:
     requested files from origin/<default-branch>. Local HEAD is then
     fast-forwarded (only when it is a strict ancestor of origin) so
     uninstalled components stay opted-out.
-  * Collision-safe: for every file, the script compares the working-tree
-    blob SHA against the target ref's blob. If they differ, the existing
-    file is moved to ~/.dotfiles_backup/<timestamp>/ before the new
-    version is restored. Nothing is ever overwritten silently.
+  * Collision-safe: for every tracked file, the script compares the
+    working-tree blob SHA against the target ref's blob. If they differ, the
+    existing file is moved to ~/.dotfiles_backup/<timestamp>/ before the new
+    version is restored. Nothing is ever overwritten silently. Untracked,
+    machine-owned files we append to (~/.zshrc, ~/.claude/settings.json) are
+    copied to the same backup dir first.
   * Fails loudly when local HEAD has diverged from origin (e.g. unpushed
-    + remote-altered history). Resolve manually with `config rebase`
-    or `config log HEAD...origin/<branch>` before re-running.
+    + remote-altered history). Resolve manually with `dotfiles rebase`
+    or `dotfiles log HEAD...origin/<branch>` before re-running.
 USAGE
 }
 
@@ -76,10 +118,18 @@ parse_args() {
     fi
     while [ $# -gt 0 ]; do
         case "$1" in
-            --all)         INSTALL_VIM=1; INSTALL_TMUX=1; INSTALL_BASH=1 ;;
+            --all)         INSTALL_VIM=1; INSTALL_TMUX=1; INSTALL_CLAUDE=1
+                           # Configure the login shell, whichever it is.
+                           if [ "$(detect_login_shell)" = "zsh" ]; then
+                               INSTALL_ZSH=1
+                           else
+                               INSTALL_BASH=1
+                           fi ;;
             --vim)         INSTALL_VIM=1 ;;
             --tmux)        INSTALL_TMUX=1 ;;
             --bash)        INSTALL_BASH=1 ;;
+            --zsh)         INSTALL_ZSH=1 ;;
+            --claude)      INSTALL_CLAUDE=1 ;;
             --interactive) INTERACTIVE=1 ;;
             --help|-h)     usage; exit 0 ;;
             *)             usage; die "unknown argument: $1" ;;
@@ -88,16 +138,25 @@ parse_args() {
     done
 }
 
-# Prompt the user when in interactive mode. Overrides whatever flags set.
+# Prompt the user when in interactive mode. Shell prompts default to the
+# detected login shell so a plain "enter" does the expected thing.
 run_interactive_prompts() {
-    log "Interactive mode. Press y/n for each component (default n)."
-    local reply
-    read -r -p "  Install/update Vim config?  (y/n) " reply
+    log "Interactive mode. Press y/n for each component."
+    local reply cur def_bash def_zsh
+    cur=$(detect_login_shell)
+    if [ "$cur" = "zsh" ]; then def_bash="n"; def_zsh="y"; else def_bash="y"; def_zsh="n"; fi
+    note "Detected login shell: $cur"
+
+    read -r -p "  Install/update Vim config?         (y/n) " reply
     [[ $reply =~ ^[Yy]$ ]] && INSTALL_VIM=1 || INSTALL_VIM=0
-    read -r -p "  Install/update Tmux config? (y/n) " reply
+    read -r -p "  Install/update Tmux config?        (y/n) " reply
     [[ $reply =~ ^[Yy]$ ]] && INSTALL_TMUX=1 || INSTALL_TMUX=0
-    read -r -p "  Install/update Bash config? (y/n) " reply
-    [[ $reply =~ ^[Yy]$ ]] && INSTALL_BASH=1 || INSTALL_BASH=0
+    read -r -p "  Configure bash (.bashrc)?          (y/n) [$def_bash] " reply
+    reply="${reply:-$def_bash}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_BASH=1 || INSTALL_BASH=0
+    read -r -p "  Configure zsh  (~/.zshrc, append)? (y/n) [$def_zsh] " reply
+    reply="${reply:-$def_zsh}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_ZSH=1 || INSTALL_ZSH=0
+    read -r -p "  Wire Claude Code status line?      (y/n) [y] " reply
+    reply="${reply:-y}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_CLAUDE=1 || INSTALL_CLAUDE=0
 }
 
 # Clone the bare repo on first run; do nothing if it already exists.
@@ -113,20 +172,20 @@ ensure_repo() {
     else
         log "Cloning $REPO_URL into $GIT_DIR (bare)"
         git clone --bare "$REPO_URL" "$GIT_DIR"
-        config config --local status.showUntrackedFiles no
+        dotfiles config --local status.showUntrackedFiles no
         JUST_CLONED=1
     fi
 
-    if ! config config --get-all remote.origin.fetch \
+    if ! dotfiles config --get-all remote.origin.fetch \
             | grep -qx '+refs/heads/\*:refs/remotes/origin/\*'; then
         log "Configuring fetch refspec on origin"
-        config config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+        dotfiles config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
     fi
 }
 
 # Fetch from origin and decide which ref to check out from.
 #
-# We cannot do `config pull --ff-only` in a partial-deploy worktree:
+# We cannot do `dotfiles pull --ff-only` in a partial-deploy worktree:
 # tracked files that the user never installed look like "local deletions"
 # to git, so pull aborts with a delete-vs-modify conflict. Instead we
 # fetch, point TARGET_REF at origin's tip, do per-file checkouts, and
@@ -141,39 +200,39 @@ update_repo() {
     fi
 
     log "Fetching latest from origin"
-    config fetch --quiet origin
+    dotfiles fetch --quiet origin
 
     local default_branch
-    default_branch=$(config symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)
+    default_branch=$(dotfiles symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)
     if [ -z "$default_branch" ]; then
         # Bare clones don't always have origin/HEAD; use local HEAD's branch.
-        default_branch=$(config symbolic-ref --short HEAD 2>/dev/null || true)
+        default_branch=$(dotfiles symbolic-ref --short HEAD 2>/dev/null || true)
     fi
     default_branch="${default_branch:-main}"
     TARGET_REF="origin/$default_branch"
 
     # Sanity-check the ref actually exists.
-    if ! config rev-parse --verify --quiet "$TARGET_REF" >/dev/null; then
-        die "Remote-tracking ref $TARGET_REF not found. Try: config fetch origin"
+    if ! dotfiles rev-parse --verify --quiet "$TARGET_REF" >/dev/null; then
+        die "Remote-tracking ref $TARGET_REF not found. Try: dotfiles fetch origin"
     fi
 
     # Sanity-check local HEAD vs origin to avoid silently rewriting
     # local-only commits (e.g. user edits committed but not yet pushed).
     local local_head target merge_base
-    local_head=$(config rev-parse HEAD)
-    target=$(config rev-parse "$TARGET_REF")
+    local_head=$(dotfiles rev-parse HEAD)
+    target=$(dotfiles rev-parse "$TARGET_REF")
     if [ "$local_head" = "$target" ]; then
         return
     fi
-    merge_base=$(config merge-base HEAD "$TARGET_REF" 2>/dev/null || true)
+    merge_base=$(dotfiles merge-base HEAD "$TARGET_REF" 2>/dev/null || true)
     if [ "$merge_base" = "$local_head" ]; then
-        log "Origin is ahead by $(config rev-list --count "$local_head..$target") commit(s); will fast-forward after install."
+        log "Origin is ahead by $(dotfiles rev-list --count "$local_head..$target") commit(s); will fast-forward after install."
     elif [ "$merge_base" = "$target" ]; then
-        warn "Local HEAD is ahead of $TARGET_REF by $(config rev-list --count "$target..$local_head") commit(s)."
-        warn "Sourcing files from local HEAD instead. Run 'config push' to share."
+        warn "Local HEAD is ahead of $TARGET_REF by $(dotfiles rev-list --count "$target..$local_head") commit(s)."
+        warn "Sourcing files from local HEAD instead. Run 'dotfiles push' to share."
         TARGET_REF="HEAD"
     else
-        die "Local HEAD has diverged from $TARGET_REF. Inspect with 'config log HEAD...$TARGET_REF' and rebase before re-running."
+        die "Local HEAD has diverged from $TARGET_REF. Inspect with 'dotfiles log HEAD...$TARGET_REF' and rebase before re-running."
     fi
 }
 
@@ -186,12 +245,12 @@ finalize_head() {
         return
     fi
     local local_head target
-    local_head=$(config rev-parse HEAD)
-    target=$(config rev-parse "$TARGET_REF")
+    local_head=$(dotfiles rev-parse HEAD)
+    target=$(dotfiles rev-parse "$TARGET_REF")
     [ "$local_head" = "$target" ] && return
 
     log "Advancing HEAD to $TARGET_REF"
-    config reset --mixed --quiet "$TARGET_REF"
+    dotfiles reset --mixed --quiet "$TARGET_REF"
 }
 
 # Per-file safe checkout.
@@ -210,26 +269,26 @@ checkout_files() {
     local f target_blob old_blob local_hash dest
     for f in "${files[@]}"; do
         # Target blob: what the new version should be. Fails loudly if untracked.
-        if ! target_blob=$(config rev-parse "$TARGET_REF:$f" 2>/dev/null); then
+        if ! target_blob=$(dotfiles rev-parse "$TARGET_REF:$f" 2>/dev/null); then
             die "$f is not tracked in the bare repo at $TARGET_REF; cannot checkout"
         fi
         # Old blob: what the previously-installed version was (HEAD before
         # any update this run). Used to distinguish "clean upgrade" from
         # "user has local edits". Empty if file was not previously tracked.
-        old_blob=$(config rev-parse "HEAD:$f" 2>/dev/null || true)
+        old_blob=$(dotfiles rev-parse "HEAD:$f" 2>/dev/null || true)
 
         if [ -e "$HOME/$f" ]; then
             local_hash=$(git hash-object -- "$HOME/$f")
             if [ "$local_hash" = "$target_blob" ]; then
                 # Already at target version. Run checkout anyway so the
                 # index entry is refreshed (cheap, no-op on disk).
-                config checkout "$TARGET_REF" -- "$f"
+                dotfiles checkout "$TARGET_REF" -- "$f"
                 continue
             fi
             if [ -n "$old_blob" ] && [ "$local_hash" = "$old_blob" ]; then
                 # Clean upgrade from old tracked version to new; no backup.
                 log "Updating $f ($old_blob -> $target_blob)"
-                config checkout "$TARGET_REF" -- "$f"
+                dotfiles checkout "$TARGET_REF" -- "$f"
                 continue
             fi
             # Local file diverges from both old and new tracked state.
@@ -239,8 +298,18 @@ checkout_files() {
             log "Backed up locally-modified $f -> $dest"
         fi
 
-        config checkout "$TARGET_REF" -- "$f"
+        dotfiles checkout "$TARGET_REF" -- "$f"
     done
+}
+
+# ---------- shared: ~/.local/bin tools ----------
+# clip is the cross-platform clipboard command used by every shell, so both
+# the bash and zsh components install it. It is a tracked file in the repo.
+install_localbin() {
+    mkdir -p "$HOME/.local/bin"
+    checkout_files .local/bin/clip
+    chmod +x "$HOME/.local/bin/clip"
+    log "Installed ~/.local/bin/clip"
 }
 
 # ---------- components ----------
@@ -258,7 +327,7 @@ install_vim() {
 
     local files=(.vimrc)
     # vim2code.py is tracked alongside .vimrc; pull it in too if available.
-    if config cat-file -e "$TARGET_REF:vim2code.py" 2>/dev/null; then
+    if dotfiles cat-file -e "$TARGET_REF:vim2code.py" 2>/dev/null; then
         files+=(vim2code.py)
     fi
 
@@ -269,8 +338,19 @@ install_vim() {
 
 install_tmux() {
     log "Component: tmux"
-    local files=(.tmux.conf)
-    checkout_files "${files[@]}"
+    checkout_files .tmux.conf
+
+    # Compatibility: allow-passthrough (clip over OSC 52 inside tmux) needs
+    # tmux >= 3.3; set-clipboard needs >= 2.6. Older tmux errors on those
+    # lines (the rest of the config still loads). Warn but never fail.
+    if command -v tmux >/dev/null 2>&1; then
+        local v
+        v=$(tmux -V 2>/dev/null | sed 's/[^0-9.]//g')
+        if ! awk -v v="$v" 'BEGIN{n=split(v,a,"."); if (n<2) exit 0;
+                 if (a[1]<3 || (a[1]==3 && a[2]<3)) exit 1}' </dev/null; then
+            warn "tmux $v < 3.3: 'allow-passthrough' may be unsupported; clip-over-OSC52 inside tmux may not work."
+        fi
+    fi
 }
 
 install_bash() {
@@ -280,7 +360,7 @@ install_bash() {
     # Tolerate older repos that only track .bashrc.
     local resolved=()
     for f in "${files[@]}"; do
-        if config cat-file -e "$TARGET_REF:$f" 2>/dev/null; then
+        if dotfiles cat-file -e "$TARGET_REF:$f" 2>/dev/null; then
             resolved+=("$f")
         else
             warn "$f is not tracked in the repo at $TARGET_REF; skipping"
@@ -291,15 +371,7 @@ install_bash() {
     fi
     checkout_files "${resolved[@]}"
 
-    # Install the standalone pbcopy script for non-interactive contexts
-    # (xargs pbcopy, scripts where the shell function is not loaded).
-    mkdir -p "$HOME/.local/bin"
-    cat > "$HOME/.local/bin/pbcopy" <<'PBCOPY'
-#!/usr/bin/env bash
-cat | base64 | tr -d '\n' | awk '{printf "\033]52;c;%s\a", $0}'
-PBCOPY
-    chmod +x "$HOME/.local/bin/pbcopy"
-    log "Installed ~/.local/bin/pbcopy"
+    install_localbin
 
     # Seed ~/.bash_secrets from the tracked example on first install only.
     # Never overwrite a real ~/.bash_secrets that the user has customized.
@@ -317,6 +389,115 @@ PBCOPY
 # Added by dotfiles bootstrap.sh
 [ -f ~/.bash_common ] && . ~/.bash_common
 BASHRC_APPEND
+    fi
+
+    # Guarantee ~/.local/bin is on PATH (the tracked .bashrc already does this;
+    # this guards the case where a non-tracked .bashrc was kept).
+    if [ -f "$HOME/.bashrc" ] && ! grep -Fq '.local/bin' "$HOME/.bashrc"; then
+        log "Appending ~/.local/bin PATH line to ~/.bashrc"
+        cat >> "$HOME/.bashrc" <<'PATH_APPEND'
+
+# Added by dotfiles bootstrap.sh
+export PATH="$HOME/.local/bin:$PATH"
+PATH_APPEND
+    fi
+}
+
+# zsh: never track or overwrite ~/.zshrc (it commonly holds machine-specific
+# or private setup). We only append one guarded block, backing the file up
+# first, and we are idempotent via the marker. oh-my-zsh / powerlevel10k are
+# left fully alone: the block is appended at the end and only adds PATH + an
+# alias, which does not interfere with the prompt or omz plugins.
+install_zsh() {
+    log "Component: zsh"
+    install_localbin
+
+    local zrc="$HOME/.zshrc"
+
+    if [ -d "$HOME/.oh-my-zsh" ] || [ -n "${ZSH:-}" ]; then
+        note "oh-my-zsh detected; appending the dotfiles block at the end (prompt/plugins untouched)."
+    fi
+
+    if [ -f "$zrc" ] && grep -Fq "$ZSH_BLOCK_BEGIN" "$zrc"; then
+        log "~/.zshrc already has the dotfiles block; leaving it untouched."
+        return
+    fi
+
+    backup_file "$zrc"
+
+    cat >> "$zrc" <<'ZBLOCK'
+
+# >>> dotfiles (managed) >>>
+# Added by dotfiles bootstrap.sh - safe to remove this whole block.
+# Put repo-managed tools (clip, claude-statusline.sh) on PATH without dupes.
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+# Drive the bare dotfiles repo from anywhere in $HOME.
+alias dotfiles='git --git-dir=$HOME/.dotfiles.git --work-tree=$HOME'
+# <<< dotfiles (managed) <<<
+ZBLOCK
+    log "Appended dotfiles block to ~/.zshrc (backup in $BACKUP_DIR)"
+}
+
+# Claude Code status line. Installs the tracked script and points
+# ~/.claude/settings.json at it. Works whether or not Claude is installed.
+install_claude() {
+    log "Component: claude (status line)"
+    mkdir -p "$HOME/.local/bin"
+    checkout_files .local/bin/claude-statusline.sh
+    chmod +x "$HOME/.local/bin/claude-statusline.sh"
+    log "Installed ~/.local/bin/claude-statusline.sh"
+
+    if ! command -v jq >/dev/null 2>&1; then
+        warn "jq not found: the status line renders via jq. Install jq or the line will be blank."
+    fi
+
+    local script="$HOME/.local/bin/claude-statusline.sh"
+    local cmd="bash \"$script\""
+    local settings="$HOME/.claude/settings.json"
+    mkdir -p "$HOME/.claude"
+
+    if [ -f "$settings" ]; then
+        backup_file "$settings"
+        if command -v jq >/dev/null 2>&1; then
+            local tmp
+            tmp=$(mktemp)
+            if jq --arg cmd "$cmd" '.statusLine = {type:"command", command:$cmd}' "$settings" > "$tmp"; then
+                mv "$tmp" "$settings"
+                log "Pointed statusLine at the tracked script in $settings"
+            else
+                rm -f "$tmp"
+                warn "jq failed to edit $settings; leaving it unchanged. Set statusLine.command to: $cmd"
+            fi
+        elif command -v python3 >/dev/null 2>&1; then
+            python3 - "$settings" "$cmd" <<'PY'
+import json, sys
+path, cmd = sys.argv[1], sys.argv[2]
+with open(path) as fh:
+    data = json.load(fh)
+data["statusLine"] = {"type": "command", "command": cmd}
+with open(path, "w") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+            log "Pointed statusLine at the tracked script in $settings (via python3)"
+        else
+            warn "Neither jq nor python3 found to edit JSON safely. Add this to $settings:"
+            note "\"statusLine\": { \"type\": \"command\", \"command\": \"$cmd\" }"
+        fi
+    else
+        cat > "$settings" <<EOF
+{
+  "statusLine": { "type": "command", "command": "$cmd" }
+}
+EOF
+        log "Created $settings with the status line wired."
+    fi
+
+    if command -v claude >/dev/null 2>&1; then
+        note "Claude Code found; the status line shows on the next session."
+    else
+        note "Claude Code not detected on PATH; the status line is wired and"
+        note "will take effect once Claude Code is installed."
     fi
 }
 
@@ -353,6 +534,19 @@ generate_vscode_vim() {
 EOF
 }
 
+# ---------- compatibility notes ----------
+print_compat_notes() {
+    cat <<'NOTES'
+==> Compatibility notes:
+    * clip: local copy uses pbcopy (macOS) or wl-copy/xclip/xsel (Linux
+      desktop). Over SSH/tmux it falls back to OSC 52, which needs a terminal
+      that supports it (iTerm2 yes, Terminal.app no) and, inside tmux,
+      allow-passthrough (tmux >= 3.3).
+    * Claude status line needs `jq`; install it if the line shows up empty.
+    * Restart your shell (or `source` the rc file) to pick up PATH changes.
+NOTES
+}
+
 # ---------- main ----------
 main() {
     parse_args "$@"
@@ -361,7 +555,8 @@ main() {
         run_interactive_prompts
     fi
 
-    if [ "$INSTALL_VIM" -eq 0 ] && [ "$INSTALL_TMUX" -eq 0 ] && [ "$INSTALL_BASH" -eq 0 ]; then
+    if [ "$INSTALL_VIM" -eq 0 ] && [ "$INSTALL_TMUX" -eq 0 ] && [ "$INSTALL_BASH" -eq 0 ] \
+       && [ "$INSTALL_ZSH" -eq 0 ] && [ "$INSTALL_CLAUDE" -eq 0 ]; then
         log "Nothing selected. Exiting without changes."
         exit 0
     fi
@@ -369,13 +564,16 @@ main() {
     ensure_repo
     update_repo
 
-    [ "$INSTALL_VIM"  -eq 1 ] && install_vim
-    [ "$INSTALL_TMUX" -eq 1 ] && install_tmux
-    [ "$INSTALL_BASH" -eq 1 ] && install_bash
+    [ "$INSTALL_VIM"    -eq 1 ] && install_vim
+    [ "$INSTALL_TMUX"   -eq 1 ] && install_tmux
+    [ "$INSTALL_BASH"   -eq 1 ] && install_bash
+    [ "$INSTALL_ZSH"    -eq 1 ] && install_zsh
+    [ "$INSTALL_CLAUDE" -eq 1 ] && install_claude
 
     finalize_head
 
-    log "Done. Open a new shell or run: source ~/.bashrc"
+    print_compat_notes
+    log "Done. Open a new shell or run: source ~/.bashrc (or ~/.zshrc)"
 }
 
 main "$@"

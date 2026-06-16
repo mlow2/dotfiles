@@ -91,12 +91,27 @@ nnoremap L $
 nnoremap j gj
 nnoremap k gk
 nnoremap Y y$
+" Same motions in visual mode so a selection matches: vL selects to EOL, etc.
+" (Y is left normal-only: in visual mode Y already yanks the selected lines.)
+vnoremap H ^
+vnoremap L $
+vnoremap j gj
+vnoremap k gk
+
+" Operator-pending equivalents so things like cL and yH operate to the line edge.
+" The `zz` recenter is dropped because it only makes sense for standalone motions.
+" j/k are intentionally NOT remapped here: gj/gk are not linewise, so dj would
+" delete a single display line instead of two whole lines.
+onoremap H ^
+onoremap L $
 
 " Paragraph jumping with screen centering
 nnoremap K {zz
 nnoremap J }zz
 vnoremap K {zz
 vnoremap J }zz
+onoremap K {
+onoremap J }
 
 " File top/bottom jumping with screen centering
 nnoremap gg ggzz
@@ -105,6 +120,8 @@ nnoremap G Gzz
 " LaTeX Environment Jumpers with screen centering
 nnoremap ]e /\\end{<CR>zz
 nnoremap [e ?\\begin{<CR>zz
+onoremap ]e /\\end{<CR>
+onoremap [e ?\\begin{<CR>
 
 " Fast inline math generation in Insert mode
 inoremap $$ $$<Left>

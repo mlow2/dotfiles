@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# clip - copy stdin or a file to the system clipboard, everywhere.
+#
+#   clip file.txt        copy a file
+#   some-cmd | clip       copy a pipeline's output
+#   clip < file           copy via redirect
+#
+# Backend is chosen automatically:
+#   macOS, local            -> pbcopy (native pasteboard)
+#   Linux desktop, Wayland  -> wl-copy
+#   Linux desktop, X11      -> xclip / xsel
+#   remote SSH / no display -> OSC 52 escape sequence to the terminal,
+#                              wrapped for tmux/screen passthrough when needed
+#
+# The OSC 52 path needs a terminal that honors it (iTerm2 yes,
+# Terminal.app no) and, inside tmux, `set -g allow-passthrough on`.
+set -euo pipefail
+
+# Read the payload from a file argument, or from stdin.
+read_input() {
+    if [ "$#" -gt 0 ] && [ "$1" != "-" ]; then
+        cat -- "$1"
+    else
+        cat
+    fi
+}
+
+# Base64 the payload and wrap it in OSC 52, adding tmux/screen DCS passthrough
+# so the sequence reaches the outer terminal. Written to /dev/tty (not stdout)
+# so it still works when clip sits in the middle of a pipeline.
+copy_osc52() {
+    local b64 seq term=${TERM:-}
+    b64=$(base64 | tr -d '\n')
+    seq=$(printf '\033]52;c;%s\a' "$b64")
+    if [ -n "${TMUX:-}" ]; then
+        seq=$(printf '\033Ptmux;\033%s\033\\' "$seq")
+    elif [ "${term%%[-.]*}" = "screen" ]; then
+        seq=$(printf '\033P%s\033\\' "$seq")
+    fi
+    if [ -w /dev/tty ]; then
+        printf '%s' "$seq" > /dev/tty
+    else
+        printf '%s' "$seq"
+    fi
+}
+
+main() {
+    case "$(uname -s)" in
+        Darwin)
+            # Native pasteboard locally; fall back to OSC 52 over SSH.
+            if [ -z "${SSH_CONNECTION:-}" ] && [ -x /usr/bin/pbcopy ]; then
+                read_input "$@" | /usr/bin/pbcopy
+            else
+                read_input "$@" | copy_osc52
+            fi
+            ;;
+        *)
+            if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+                read_input "$@" | wl-copy
+            elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+                read_input "$@" | xclip -selection clipboard
+            elif [ -n "${DISPLAY:-}" ] && command -v xsel >/dev/null 2>&1; then
+                read_input "$@" | xsel --clipboard --input
+            else
+                read_input "$@" | copy_osc52
+            fi
+            ;;
+    esac
+}
+
+main "$@"

@@ -4,23 +4,18 @@
 # (CUDA paths, API tokens, hostnames) belongs in ~/.bash_secrets instead.
 
 # ---------- bare-repo dotfiles alias ----------
-# Use 'config' anywhere in $HOME to talk to the tracked dotfiles repo.
-#   config status / config add / config commit / config push / config pull
-alias config='/usr/bin/git --git-dir=$HOME/.dotfiles.git/ --work-tree=$HOME'
+# The `dotfiles` alias is defined in ~/.bashrc so it loads even in shells that
+# do not source this file. Left here only as a usage reminder:
+#   dotfiles status / dotfiles add <file> / dotfiles commit / dotfiles push
 
-# ---------- clipboard (OSC 52, works over SSH + tmux passthrough) ----------
-pbcopy() {
-    if [ -t 0 ]; then
-        echo "pbcopy expects stdin" >&2
-        return 1
-    fi
-    base64 | tr -d '\n' | awk '{printf "\033]52;c;%s\a", $0}'
-}
-
-clipfile() {
-    [ $# -eq 1 ] || { echo "usage: clipfile <file>" >&2; return 1; }
-    pbcopy < "$1"
-}
+# ---------- clipboard ----------
+# Clipboard copy is handled by the standalone `clip` script in ~/.local/bin:
+# native pbcopy on macOS, wl-copy/xclip/xsel on Linux desktops, and OSC 52 over
+# SSH/tmux otherwise. ~/.bashrc puts ~/.local/bin on PATH. Use `clip <file>` or
+# `cmd | clip`. Keep `pbcopy` working in bash where there is no native one.
+if ! command -v pbcopy >/dev/null 2>&1 && command -v clip >/dev/null 2>&1; then
+    alias pbcopy='clip'
+fi
 
 # ---------- git helpers ----------
 # Add tracked + commit in one step
