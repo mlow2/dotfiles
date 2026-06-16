@@ -59,9 +59,9 @@ nnoremap <leader>P "0p
 vnoremap <leader>P "0p
 
 " --- Clipboard (Cross-Platform / SSH / macOS Bridge) ---
-" Yank to system clipboard using pbcopy (OSC 52 over SSH, or native on Mac)
-vnoremap <leader>y :w !pbcopy<CR><CR>
-nnoremap <leader>Y :.w !pbcopy<CR><CR>
+" Yank to system clipboard via clip: native locally, OSC 52 over SSH/tmux
+vnoremap <leader>y :w !clip<CR><CR>
+nnoremap <leader>Y :.w !clip<CR><CR>
 
 " ==============================================================================
 " >>>                 LATEX & TEXT OBJECT CUSTOMIZATIONS                     <<<
