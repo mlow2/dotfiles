@@ -67,11 +67,11 @@ backup_file() {
 
 usage() {
     cat <<'USAGE'
-bootstrap.sh - bare-repo dotfiles deploy/update
+dotfiles-bootstrap - bare-repo dotfiles deploy/update
 
 Usage:
-  bootstrap.sh                 Interactive prompts for each component
-  bootstrap.sh [component ...] Non-interactive; install only the listed components
+  dotfiles-bootstrap                 Interactive prompts for each component
+  dotfiles-bootstrap [component ...] Non-interactive; install only the listed components
 
 Components (any combination):
   --all          Vim + Tmux + (your login shell) + Claude status line
@@ -326,12 +326,14 @@ install_vim() {
     fi
 
     local files=(.vimrc)
-    # vim2code.py is tracked alongside .vimrc; pull it in too if available.
-    if dotfiles cat-file -e "$TARGET_REF:vim2code.py" 2>/dev/null; then
-        files+=(vim2code.py)
+    # vim2code lives in ~/.local/bin; pull it in too if available.
+    if dotfiles cat-file -e "$TARGET_REF:.local/bin/vim2code" 2>/dev/null; then
+        mkdir -p "$HOME/.local/bin"
+        files+=(.local/bin/vim2code)
     fi
 
     checkout_files "${files[@]}"
+    [ -f "$HOME/.local/bin/vim2code" ] && chmod +x "$HOME/.local/bin/vim2code"
 
     generate_vscode_vim
 }
@@ -386,7 +388,7 @@ install_bash() {
         log "Appending .bash_common sourcing line to ~/.bashrc"
         cat >> "$HOME/.bashrc" <<'BASHRC_APPEND'
 
-# Added by dotfiles bootstrap.sh
+# Added by dotfiles-bootstrap
 [ -f ~/.bash_common ] && . ~/.bash_common
 BASHRC_APPEND
     fi
@@ -397,7 +399,7 @@ BASHRC_APPEND
         log "Appending ~/.local/bin PATH line to ~/.bashrc"
         cat >> "$HOME/.bashrc" <<'PATH_APPEND'
 
-# Added by dotfiles bootstrap.sh
+# Added by dotfiles-bootstrap
 export PATH="$HOME/.local/bin:$PATH"
 PATH_APPEND
     fi
@@ -428,7 +430,7 @@ install_zsh() {
     cat >> "$zrc" <<'ZBLOCK'
 
 # >>> dotfiles (managed) >>>
-# Added by dotfiles bootstrap.sh - safe to remove this whole block.
+# Added by dotfiles-bootstrap - safe to remove this whole block.
 # Put repo-managed tools (clip, claude-statusline.sh) on PATH without dupes.
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 # Drive the bare dotfiles repo from anywhere in $HOME.
@@ -501,25 +503,27 @@ EOF
     fi
 }
 
-# ---------- vim2code.py wiring ----------
-# Bootstrap-time generation only (no git hook). Runs the tracked vim2code.py
-# against the freshly-checked-out .vimrc and writes the JSONC artifact to
-# $HOME/vscode_vim.jsonc. The artifact is intentionally untracked: VSCode
-# settings.json is per-machine, and we never want to overwrite it blindly.
+# ---------- vim2code wiring ----------
+# Bootstrap-time generation only (no git hook). Runs the tracked vim2code
+# (~/.local/bin/vim2code) against the freshly-checked-out .vimrc and writes the
+# JSONC artifact under ~/.local/state/dotfiles/ (XDG state; keeps $HOME clean).
+# The artifact is intentionally untracked: VSCode settings.json is per-machine
+# and we never want to overwrite it blindly.
 generate_vscode_vim() {
-    local script="$HOME/vim2code.py"
-    local output="$HOME/vscode_vim.jsonc"
+    local script="$HOME/.local/bin/vim2code"
+    local output="$HOME/.local/state/dotfiles/vscode_vim.jsonc"
 
     if [ ! -f "$script" ]; then
-        warn "vim2code.py not present in repo; skipping VSCode Vim translation"
+        warn "vim2code not present; skipping VSCode Vim translation"
         return
     fi
     if ! command -v python3 >/dev/null 2>&1; then
-        warn "python3 not found; skipping vim2code.py. Install python3 and re-run --vim to regenerate."
+        warn "python3 not found; skipping vim2code. Install python3 and re-run --vim to regenerate."
         return
     fi
 
-    log "Generating VSCode Vim settings via vim2code.py"
+    mkdir -p "$(dirname "$output")"
+    log "Generating VSCode Vim settings via vim2code"
     ( cd "$HOME" && python3 "$script" ) > "$output"
     log "Wrote $output"
 
