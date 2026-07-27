@@ -79,9 +79,10 @@ Components (any combination):
   --tmux         .tmux.conf
   --bash         .bashrc, .bash_common, .bash_secrets.example; clip; seeds
                  ~/.bash_secrets. Does NOT touch ~/.zshrc.
-  --zsh          Appends a guarded block to ~/.zshrc (PATH for ~/.local/bin +
-                 the `dotfiles` alias) and installs clip. Never tracks/overwrites
-                 ~/.zshrc. Does NOT touch ~/.bashrc. oh-my-zsh safe.
+  --zsh          .zsh_common; appends a guarded block to ~/.zshrc (PATH for
+                 ~/.local/bin, the `dotfiles` alias, sources .zsh_common) and
+                 installs clip. Never tracks/overwrites ~/.zshrc. Does NOT touch
+                 ~/.bashrc. oh-my-zsh safe.
   --claude       Installs the Claude Code status line script and points
                  ~/.claude/settings.json at it (Claude need not be installed yet).
   --interactive  Force interactive prompts even when other flags are passed
@@ -433,6 +434,7 @@ PATH_APPEND
 install_zsh() {
     log "Component: zsh"
     install_localbin
+    checkout_files .zsh_common
 
     local zrc="$HOME/.zshrc"
 
@@ -441,7 +443,18 @@ install_zsh() {
     fi
 
     if [ -f "$zrc" ] && grep -Fq "$ZSH_BLOCK_BEGIN" "$zrc"; then
-        log "~/.zshrc already has the dotfiles block; leaving it untouched."
+        if grep -Fq '.zsh_common' "$zrc"; then
+            log "~/.zshrc already has the dotfiles block; leaving it untouched."
+            return
+        fi
+        # Block predates the .zsh_common component; splice the source line in
+        # rather than appending a second block.
+        backup_file "$zrc"
+        awk -v end="$ZSH_BLOCK_END" '
+            $0 == end { print "[ -r \"$HOME/.zsh_common\" ] && source \"$HOME/.zsh_common\"" }
+            { print }
+        ' "$zrc" > "$zrc.dotfiles-tmp" && mv "$zrc.dotfiles-tmp" "$zrc"
+        log "Added .zsh_common to the existing block in ~/.zshrc (backup in $BACKUP_DIR)"
         return
     fi
 
@@ -455,6 +468,8 @@ install_zsh() {
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 # Drive the bare dotfiles repo from anywhere in $HOME.
 alias dotfiles='git --git-dir=$HOME/.dotfiles.git --work-tree=$HOME'
+# Portable aliases, git helpers, prompt and highlighting.
+[ -r "$HOME/.zsh_common" ] && source "$HOME/.zsh_common"
 # <<< dotfiles (managed) <<<
 ZBLOCK
     log "Appended dotfiles block to ~/.zshrc (backup in $BACKUP_DIR)"
