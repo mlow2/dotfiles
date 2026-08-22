@@ -53,19 +53,40 @@ gclone() {
     cd "$dest"
 }
 
-# ---------- prompt and highlighting ----------
+# ---------- prompt ----------
 autoload -Uz promptinit && promptinit
 (( ${+functions[prompt_pure_setup]} )) && prompt pure
 
-# Must be sourced last to wrap the line editor.
-for _zsh_hl in \
-    /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
-    /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
-    /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-do
-    [ -r "$_zsh_hl" ] && source "$_zsh_hl" && break
-done
-unset _zsh_hl
+# ---------- line editor ----------
+_zsh_src() {
+    local f
+    for f in "$@"; do
+        [ -r "$f" ] && source "$f" && return 0
+    done
+    return 1
+}
+
+(( ${+_comps} )) || { autoload -Uz compinit && compinit; }
+
+# Order is fixed by upstream: fzf-tab must bind its widgets before the
+# highlighter and autosuggestions wrap them, and autosuggestions must come after
+# the highlighter.
+_zsh_src /opt/homebrew/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh \
+         /usr/local/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh \
+         "$HOME/.zsh/fzf-tab/fzf-tab.zsh"
+
+_zsh_src /opt/homebrew/opt/zsh-fast-syntax-highlighting/share/zsh-fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
+         /usr/local/opt/zsh-fast-syntax-highlighting/share/zsh-fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
+         /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh
+
+_zsh_src /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+         /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+         /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+unset -f _zsh_src
 
 # ---------- per-machine overrides ----------
 [ -f "$HOME/.zsh_secrets" ] && source "$HOME/.zsh_secrets"
+
+# Keep $? clean so pure does not paint the first prompt red.
+true
