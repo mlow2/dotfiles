@@ -29,30 +29,6 @@ gac() {
 alias gaca='git commit -a --amend --no-edit'
 alias gcaa='git commit -a --amend --no-edit'
 
-# Clone into ~/repos/<account>/<repo> using the key that account's gitconfig
-# names. Needed because includeIf gitdir: rules cannot apply during the clone
-# itself; afterwards the directory governs identity and key.
-gclone() {
-    local acct="$1" url="$2"
-    if [ -z "$acct" ] || [ -z "$url" ]; then
-        echo "Usage: gclone <account> <clone-url>" >&2
-        return 1
-    fi
-
-    local cfg="$HOME/.config/git/$acct.gitconfig"
-    if [ ! -f "$cfg" ]; then
-        echo "gclone: no config for account '$acct' ($cfg)" >&2
-        return 1
-    fi
-
-    local sshcmd dest
-    sshcmd=$(git config -f "$cfg" core.sshCommand 2>/dev/null)
-    dest="$HOME/repos/$acct/${${url##*/}%.git}"
-
-    GIT_SSH_COMMAND="${sshcmd:-ssh}" git clone "$url" "$dest" || return
-    cd "$dest"
-}
-
 # ---------- prompt ----------
 autoload -Uz promptinit && promptinit
 (( ${+functions[prompt_pure_setup]} )) && prompt pure
