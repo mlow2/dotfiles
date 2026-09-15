@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import re
+import sys
 
 # VSCodeVim has a native toggle for these Vim options.
 VSCODE_BOOL_OPTIONS = {'ignorecase', 'smartcase', 'hlsearch', 'incsearch'}
@@ -153,7 +154,7 @@ def generate_output(vimrc_content):
     output = []
     if unsupported:
         output.append("// =====================================================================")
-        output.append("// UNSUPPORTED FEATURES FOUND IN .VIMRC:")
+        output.append("// UNSUPPORTED FEATURES FOUND IN THE VIM CONFIG:")
         output.append("// The following lines utilize shell commands, command-line modes,")
         output.append("// or custom expressions that the VSCode Vim emulator cannot process.")
         output.append("// =====================================================================")
@@ -165,10 +166,9 @@ def generate_output(vimrc_content):
     return "\n".join(output)
 
 # ==========================================
-# Example Usage
+# Entry point: vim2code [path]   (default: ./.vimrc)
 # ==========================================
 if __name__ == "__main__":
-    with open(".vimrc", "r") as f:
-        vimrc_text = f.read()
-        
-    print(generate_output(vimrc_text))
+    path = sys.argv[1] if len(sys.argv) > 1 else ".vimrc"
+    with open(path, "r") as f:
+        print(generate_output(f.read()))

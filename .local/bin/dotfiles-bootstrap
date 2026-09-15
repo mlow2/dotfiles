@@ -28,6 +28,7 @@ ZSH_BLOCK_END="# <<< dotfiles (managed) <<<"
 
 # Component flags (0 = skip, 1 = install/update)
 INSTALL_VIM=0
+INSTALL_NVIM=0
 INSTALL_TMUX=0
 INSTALL_BASH=0
 INSTALL_ZSH=0
@@ -74,8 +75,11 @@ Usage:
   dotfiles-bootstrap [component ...] Non-interactive; install only the listed components
 
 Components (any combination):
-  --all          Vim + Tmux + (your login shell) + Claude status line
+  --all          Vim + Neovim + Tmux + (your login shell) + Claude status line
   --vim          .vimrc, ~/.vim plugin dirs, vim-commentary, vscode_vim.jsonc
+  --nvim         .config/nvim/init.vim, ~/.local/state/nvim dirs, vscode_vim.jsonc.
+                 Needs nvim >= 0.10 (built-in gc commenting, no 'pastetoggle').
+                 Coexists with --vim; neither touches the other's config.
   --tmux         .tmux.conf
   --bash         .bashrc, .bash_common, .bash_secrets.example; clip; seeds
                  ~/.bash_secrets. Does NOT touch ~/.zshrc.
@@ -119,7 +123,7 @@ parse_args() {
     fi
     while [ $# -gt 0 ]; do
         case "$1" in
-            --all)         INSTALL_VIM=1; INSTALL_TMUX=1; INSTALL_CLAUDE=1
+            --all)         INSTALL_VIM=1; INSTALL_NVIM=1; INSTALL_TMUX=1; INSTALL_CLAUDE=1
                            # Configure the login shell, whichever it is.
                            if [ "$(detect_login_shell)" = "zsh" ]; then
                                INSTALL_ZSH=1
@@ -127,6 +131,7 @@ parse_args() {
                                INSTALL_BASH=1
                            fi ;;
             --vim)         INSTALL_VIM=1 ;;
+            --nvim)        INSTALL_NVIM=1 ;;
             --tmux)        INSTALL_TMUX=1 ;;
             --bash)        INSTALL_BASH=1 ;;
             --zsh)         INSTALL_ZSH=1 ;;
@@ -150,6 +155,8 @@ run_interactive_prompts() {
 
     read -r -p "  Install/update Vim config?         (y/n) " reply
     [[ $reply =~ ^[Yy]$ ]] && INSTALL_VIM=1 || INSTALL_VIM=0
+    read -r -p "  Install/update Neovim config?      (y/n) " reply
+    [[ $reply =~ ^[Yy]$ ]] && INSTALL_NVIM=1 || INSTALL_NVIM=0
     read -r -p "  Install/update Tmux config?        (y/n) " reply
     [[ $reply =~ ^[Yy]$ ]] && INSTALL_TMUX=1 || INSTALL_TMUX=0
     read -r -p "  Configure bash (.bashrc)?          (y/n) [$def_bash] " reply
@@ -356,7 +363,37 @@ install_vim() {
     checkout_files "${files[@]}"
     [ -f "$HOME/.local/bin/vim2code" ] && chmod +x "$HOME/.local/bin/vim2code"
 
-    generate_vscode_vim
+    # Both configs carry the same mappings; let nvim's win when it is selected.
+    [ "$INSTALL_NVIM" -eq 1 ] || generate_vscode_vim .vimrc
+}
+
+install_nvim() {
+    log "Component: nvim"
+    mkdir -p "$HOME/.config/nvim" \
+             "$HOME/.local/state/nvim/undodir" "$HOME/.local/state/nvim/tmp"
+
+    local files=(.config/nvim/init.vim)
+    # vim2code lives in ~/.local/bin; pull it in too if available.
+    if dotfiles cat-file -e "$TARGET_REF:.local/bin/vim2code" 2>/dev/null; then
+        mkdir -p "$HOME/.local/bin"
+        files+=(.local/bin/vim2code)
+    fi
+
+    checkout_files "${files[@]}"
+    [ -f "$HOME/.local/bin/vim2code" ] && chmod +x "$HOME/.local/bin/vim2code"
+
+    if ! command -v nvim >/dev/null 2>&1; then
+        warn "nvim not on PATH; the config is installed but nothing reads it yet (brew install neovim)."
+    else
+        local v
+        v=$(nvim --version | head -1 | sed 's/[^0-9.]//g')
+        if ! awk -v v="$v" 'BEGIN{n=split(v,a,"."); if (n<2) exit 0;
+                 if (a[1]==0 && a[2]<10) exit 1}' </dev/null; then
+            warn "nvim $v < 0.10: no built-in gc commenting; install tpope/vim-commentary under ~/.local/share/nvim/site/pack."
+        fi
+    fi
+
+    generate_vscode_vim .config/nvim/init.vim
 }
 
 install_tmux() {
@@ -540,11 +577,13 @@ EOF
 
 # ---------- vim2code wiring ----------
 # Bootstrap-time generation only (no git hook). Runs the tracked vim2code
-# (~/.local/bin/vim2code) against the freshly-checked-out .vimrc and writes the
+# (~/.local/bin/vim2code) against the freshly-checked-out config named in $1
+# (a $HOME-relative path: .vimrc or .config/nvim/init.vim) and writes the
 # JSONC artifact under ~/.local/state/dotfiles/ (XDG state; keeps $HOME clean).
 # The artifact is intentionally untracked: VSCode settings.json is per-machine
 # and we never want to overwrite it blindly.
 generate_vscode_vim() {
+    local source_config="$1"
     local script="$HOME/.local/bin/vim2code"
     local output="$HOME/.local/state/dotfiles/vscode_vim.jsonc"
 
@@ -558,13 +597,13 @@ generate_vscode_vim() {
     fi
 
     mkdir -p "$(dirname "$output")"
-    log "Generating VSCode Vim settings via vim2code"
-    ( cd "$HOME" && python3 "$script" ) > "$output"
+    log "Generating VSCode Vim settings via vim2code from $source_config"
+    ( cd "$HOME" && python3 "$script" "$source_config" ) > "$output"
     log "Wrote $output"
 
     cat <<EOF
     NOTE: $output is JSONC (JSON + // comments) and contains only the
-    VSCode Vim emulator settings translated from your .vimrc.
+    VSCode Vim emulator settings translated from your ~/$source_config.
     Merge the contents into your VSCode settings.json:
       macOS: ~/Library/Application Support/Code/User/settings.json
       Linux: ~/.config/Code/User/settings.json
@@ -581,6 +620,8 @@ print_compat_notes() {
       desktop). Over SSH/tmux it falls back to OSC 52, which needs a terminal
       that supports it (iTerm2 yes, Terminal.app no) and, inside tmux,
       allow-passthrough (tmux >= 3.3).
+    * nvim: this config targets nvim >= 0.10. It relies on the built-in gc
+      commenting maps and omits 'pastetoggle', which newer nvim rejects (E519).
     * Claude status line needs `jq`; install it if the line shows up empty.
     * Restart your shell (or `source` the rc file) to pick up PATH changes.
 NOTES
@@ -594,7 +635,8 @@ main() {
         run_interactive_prompts
     fi
 
-    if [ "$INSTALL_VIM" -eq 0 ] && [ "$INSTALL_TMUX" -eq 0 ] && [ "$INSTALL_BASH" -eq 0 ] \
+    if [ "$INSTALL_VIM" -eq 0 ] && [ "$INSTALL_NVIM" -eq 0 ] \
+       && [ "$INSTALL_TMUX" -eq 0 ] && [ "$INSTALL_BASH" -eq 0 ] \
        && [ "$INSTALL_ZSH" -eq 0 ] && [ "$INSTALL_CLAUDE" -eq 0 ]; then
         log "Nothing selected. Exiting without changes."
         exit 0
@@ -604,6 +646,7 @@ main() {
     update_repo
 
     [ "$INSTALL_VIM"    -eq 1 ] && install_vim
+    [ "$INSTALL_NVIM"   -eq 1 ] && install_nvim
     [ "$INSTALL_TMUX"   -eq 1 ] && install_tmux
     [ "$INSTALL_BASH"   -eq 1 ] && install_bash
     [ "$INSTALL_ZSH"    -eq 1 ] && install_zsh
