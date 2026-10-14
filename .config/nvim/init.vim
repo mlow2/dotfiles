@@ -17,6 +17,13 @@ set shiftwidth=4            " Spaces for each level of (auto)indent
 set expandtab               " Use spaces instead of tabs
 set smartindent             " Auto-indent new lines
 
+" --- Text Wrapping ---
+set textwidth=100           " Auto-wrap at 100 columns while typing
+" Some ftplugins (c, vim, ...) strip 't' from formatoptions; re-add it after they run
+autocmd FileType * setlocal formatoptions+=t
+" Manual reformat: select text in visual mode and press gq to re-wrap it to
+" textwidth. gqip re-wraps the current paragraph; gqq re-wraps the current line.
+
 " --- Paste ---
 " Nothing to configure: nvim handles bracketed paste natively, and
 " 'pastetoggle' was removed (E519), so the <F2> fallback is gone with it.
