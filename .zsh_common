@@ -78,3 +78,13 @@ unset -f _zsh_src
 
 # Keep $? clean so pure does not paint the first prompt red.
 true
+
+# Navigation: zoxide learns visited dirs (z <query>, zi for picker); repo picks from ~/repos/<org>/<repo>
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
+repo() {
+    local d
+    d=$(find ~/repos -mindepth 2 -maxdepth 2 -type d | fzf --query="$1" --select-1 --exit-0) && cd "$d"
+}
+
+HISTORY_IGNORE='(export *TOKEN=*|export *SECRET=*|export *KEY=*|export *PASS*=*|export *[cC][rR][eE][dD]*=*)'
