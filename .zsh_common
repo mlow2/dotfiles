@@ -43,10 +43,6 @@ alias gcaa='git commit -a --amend --no-edit'
 alias gundo='git reset --soft HEAD~1'
 alias gdl='git show HEAD'
 
-# ---------- prompt ----------
-autoload -Uz promptinit && promptinit
-(( ${+functions[prompt_pure_setup]} )) && prompt pure
-
 # ---------- line editor ----------
 _zsh_src() {
     local f
@@ -58,6 +54,9 @@ _zsh_src() {
 
 (( ${+_comps} )) || { autoload -Uz compinit && compinit; }
 
+# Prompt: git clone https://github.com/agkozak/agkozak-zsh-prompt ~/.zsh/agkozak-zsh-prompt
+_zsh_src "$HOME/.zsh/agkozak-zsh-prompt/agkozak-zsh-prompt.plugin.zsh"
+
 # Order is fixed by upstream: fzf-tab must bind its widgets before the
 # highlighter and autosuggestions wrap them, and autosuggestions must come after
 # the highlighter.
@@ -67,7 +66,8 @@ _zsh_src /opt/homebrew/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh \
 
 _zsh_src /opt/homebrew/opt/zsh-fast-syntax-highlighting/share/zsh-fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
          /usr/local/opt/zsh-fast-syntax-highlighting/share/zsh-fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
-         /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh
+         /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
+         "$HOME/.zsh/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh"
 
 _zsh_src /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
          /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
@@ -78,7 +78,7 @@ unset -f _zsh_src
 # ---------- per-machine overrides ----------
 [ -f "$HOME/.zsh_secrets" ] && source "$HOME/.zsh_secrets"
 
-# Keep $? clean so pure does not paint the first prompt red.
+# Keep $? clean so the first prompt does not show a stale exit code.
 true
 
 # Navigation: zoxide learns visited dirs (z <query>, zi for picker); repo picks from ~/repos/<org>/<repo>
