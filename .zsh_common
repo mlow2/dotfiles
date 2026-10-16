@@ -40,6 +40,8 @@ gac() {
 
 alias gaca='git commit -a --amend --no-edit'
 alias gcaa='git commit -a --amend --no-edit'
+alias gundo='git reset --soft HEAD~1'
+alias gdl='git show HEAD'
 
 # ---------- prompt ----------
 autoload -Uz promptinit && promptinit
