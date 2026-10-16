@@ -41,11 +41,6 @@ gac() {
 alias gaca='git commit -a --amend --no-edit'
 alias gcaa='git commit -a --amend --no-edit'
 
-# ---------- prompt ----------
-[ -d "$HOME/.zsh/pure" ] && fpath=("$HOME/.zsh/pure" $fpath)
-autoload -Uz promptinit && promptinit
-(( ${+functions[prompt_pure_setup]} )) && prompt pure
-
 # ---------- line editor ----------
 _zsh_src() {
     local f
@@ -56,6 +51,9 @@ _zsh_src() {
 }
 
 (( ${+_comps} )) || { autoload -Uz compinit && compinit; }
+
+# Prompt: git clone https://github.com/agkozak/agkozak-zsh-prompt ~/.zsh/agkozak-zsh-prompt
+_zsh_src "$HOME/.zsh/agkozak-zsh-prompt/agkozak-zsh-prompt.plugin.zsh"
 
 # Order is fixed by upstream: fzf-tab must bind its widgets before the
 # highlighter and autosuggestions wrap them, and autosuggestions must come after
@@ -78,7 +76,7 @@ unset -f _zsh_src
 # ---------- per-machine overrides ----------
 [ -f "$HOME/.zsh_secrets" ] && source "$HOME/.zsh_secrets"
 
-# Keep $? clean so pure does not paint the first prompt red.
+# Keep $? clean so the first prompt does not show a stale exit code.
 true
 
 # Navigation: zoxide learns visited dirs (z <query>, zi for picker); repo picks from ~/repos/<org>/<repo>
