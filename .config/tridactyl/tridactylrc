@@ -1,0 +1,25 @@
+" ~/.config/tridactyl/tridactylrc  (load with :source; export with :mktridactylrc --clipboard)
+
+" tabs
+bind J tabnext
+bind K tabprev
+bind '' tab #
+unbind d
+bind x tabclose
+bind X undo
+
+" scrolling (revert with :nosmoothscrollwizard)
+smoothscrollwizard
+
+" external editor: Ctrl+I in any text box opens Neovide (absolute paths required)
+set editorcmd /opt/homebrew/bin/neovide --no-fork --neovim-bin /opt/homebrew/bin/nvim %f
+
+" blacklist current site with ,b; takes effect on next load, so press r after
+bind ,b composite js document.location.hostname | blacklistadd
+
+blacklistadd mail.google.com
+blacklistadd overleaf.com
+
+" tab switching still available on blacklisted sites
+bind --mode=ignore <C-b> fillcmdline taball
+bind --mode=ignore <C-'> tab #
