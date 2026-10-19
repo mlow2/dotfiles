@@ -23,3 +23,10 @@ blacklistadd overleaf.com
 " tab switching still available on blacklisted sites
 bind --mode=ignore <C-b> fillcmdline taball
 bind --mode=ignore <C-'> tab #
+
+" optional, will revert if buggy
+bind / fillcmdline find
+bind ? fillcmdline find --reverse
+bind n findnext --search-from-view
+bind N findnext --search-from-view --reverse
+bind ,<Space> nohlsearch
