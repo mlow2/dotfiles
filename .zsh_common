@@ -90,4 +90,9 @@ repo() {
 }
 alias zz='z -'
 
-HISTORY_IGNORE='(export *TOKEN=*|export *SECRET=*|export *KEY=*|export *PASS*=*|export *[cC][rR][eE][dD]*=*)'
+HISTORY_IGNORE='(*TOKEN=*|*SECRET=*|*KEY=*|*PASS*=*|*[cC][rR][eE][dD]*=*)'
+
+# ---------- ssh agent ----------
+# macOS ssh-agent starts empty at login; reload keys whose passphrases are in the
+# login Keychain (stored once via: ssh-add --apple-use-keychain <key>).
+[[ "$OSTYPE" == darwin* ]] && ssh-add -q --apple-load-keychain 2>/dev/null
