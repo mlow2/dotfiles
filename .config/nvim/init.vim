@@ -75,7 +75,7 @@ vnoremap <leader>P "0p
 
 " --- Clipboard (Cross-Platform / SSH / macOS Bridge) ---
 " Yank to system clipboard via clip: native locally, OSC 52 over SSH/tmux
-vnoremap <leader>y :w !clip<CR><CR>
+vnoremap <leader>y y:call system('clip', @0)<CR>
 nnoremap <leader>Y :.w !clip<CR><CR>
 
 " ==============================================================================

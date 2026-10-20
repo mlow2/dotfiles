@@ -8,6 +8,14 @@ unbind d
 bind x tabclose
 bind X undo
 
+" containers: ,t new tab in a container, ,r move this tab to one; names fuzzy match
+set tabopencontaineraware true
+command ctab tabopen -c
+command rc recontain
+command ctabs tabsort --containers
+bind ,t fillcmdline ctab
+bind ,r fillcmdline rc
+
 " scrolling (revert with :nosmoothscrollwizard)
 smoothscrollwizard
 
