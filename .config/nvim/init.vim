@@ -3,6 +3,28 @@
 " ==============================================================================
 " Migrated from ~/.vimrc. Plain vim keeps its own config; this file is nvim's.
 
+" --- Neovide (GUI only; terminal nvim skips this block) ---
+" Window grid lives in ~/.config/neovide/config.toml (set columns here is halved on HiDPI).
+if exists('g:neovide')
+  let g:neovide_remember_window_size = v:false
+  if exists('$TRIDACTYL_EDITOR')
+    let g:neovide_opacity = 0.7
+    let g:neovide_normal_opacity = 0.7
+    " soft wrap instead of the 100-column hard wrap set further down
+    autocmd VimEnter * set textwidth=0 wrap linebreak breakindent
+  endif
+  " Cmd shortcuts, per https://neovide.dev/faq.html#how-can-i-use-cmd-ccmd-v-to-copy-and-paste
+  nnoremap <D-s> <Cmd>w<CR>
+  inoremap <D-s> <Cmd>w<CR>
+  vnoremap <D-s> <Cmd>w<CR>
+  vnoremap <D-c> "+y
+  nnoremap <D-v> <Cmd>call nvim_paste(getreg('+'), v:true, -1)<CR>
+  inoremap <D-v> <Cmd>call nvim_paste(getreg('+'), v:true, -1)<CR>
+  vnoremap <D-v> <Cmd>call nvim_paste(getreg('+'), v:true, -1)<CR>
+  cnoremap <D-v> <C-R>+
+  tnoremap <D-v> <Cmd>call nvim_paste(getreg('+'), v:true, -1)<CR>
+endif
+
 " --- General ---
 syntax on                   " Enable syntax highlighting
 filetype plugin indent on   " Enable filetype-based indentation

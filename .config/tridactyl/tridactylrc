@@ -7,6 +7,7 @@ bind '' tab #
 unbind d
 bind x tabclose
 bind X undo
+unbind u
 
 " containers: ,t new tab in a container, ,r move this tab to one; names fuzzy match
 set tabopencontaineraware true
@@ -19,8 +20,9 @@ bind ,r fillcmdline rc
 " scrolling (revert with :nosmoothscrollwizard)
 smoothscrollwizard
 
-" external editor: Ctrl+I in any text box opens Neovide (absolute paths required)
-set editorcmd /opt/homebrew/bin/neovide --no-fork --neovim-bin /opt/homebrew/bin/nvim %f
+" external editor: Ctrl+I in any text box opens Neovide (absolute paths required).
+" TRIDACTYL_EDITOR tells init.vim to make the window translucent.
+set editorcmd TRIDACTYL_EDITOR=1 /opt/homebrew/bin/neovide --no-fork --neovim-bin /opt/homebrew/bin/nvim %f
 
 " blacklist current site with ,b; takes effect on next load, so press r after
 bind ,b composite js document.location.hostname | blacklistadd
