@@ -69,6 +69,11 @@ _zsh_src /opt/homebrew/opt/zsh-fast-syntax-highlighting/share/zsh-fast-syntax-hi
          /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
          "$HOME/.zsh/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh"
 
+# Ctrl-F / Right accept one word of the suggestion; Ctrl-E / End accept all.
+ZSH_AUTOSUGGEST_ACCEPT_WIDGETS=(end-of-line vi-end-of-line vi-add-eol)
+ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS=(forward-char vi-forward-char forward-word emacs-forward-word
+    vi-forward-word vi-forward-word-end vi-forward-blank-word vi-forward-blank-word-end
+    vi-find-next-char vi-find-next-char-skip)
 _zsh_src /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
          /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
          /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
