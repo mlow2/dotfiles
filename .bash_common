@@ -45,10 +45,21 @@ export GIT_PS1_SHOWDIRTYSTATE=1
 export GIT_PS1_SHOWUNTRACKEDFILES=1
 export GIT_PS1_SHOWUPSTREAM="auto"
 
-# Compressed prompt: green CWD basename + cyan git status.
-# Example: my_project|main*+ $
+# ---------- host identity ----------
+# Same scheme as .zsh_common: prompt host colour and OSC 12 cursor colour keyed
+# by hostname; bright red for any host not listed here.
+case ${HOSTNAME%%.*} in
+    magpu) _host_colour='01;35'; _host_cursor='#d75fff' ;;
+    # next named server: cyan '01;36', '#5fd7ff'
+    *)     _host_colour='01;91'; _host_cursor='#ff5f5f' ;;
+esac
+_set_host_cursor() { printf '\033]12;%s\007' "$_host_cursor"; }
+PROMPT_COMMAND="_set_host_cursor${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+
+# Compressed prompt: host in its colour + green CWD basename + cyan git status.
+# Example: magpu my_project|main*+ $
 if type __git_ps1 >/dev/null 2>&1; then
-    export PS1='\[\033[01;32m\]\W\[\033[01;36m\]$(__git_ps1 "|%s")\[\033[00m\]\$ '
+    export PS1='\[\033['"$_host_colour"'m\]\h\[\033[00m\] \[\033[01;32m\]\W\[\033[01;36m\]$(__git_ps1 "|%s")\[\033[00m\]\$ '
 fi
 
 # ---------- per-machine overrides ----------
