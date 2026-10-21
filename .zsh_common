@@ -70,6 +70,17 @@ AGKOZAK_COLORS_USER_HOST=$_host_colour
 _set_host_cursor() { printf '\e]12;%s\a' "$_host_cursor"; }
 precmd_functions+=(_set_host_cursor)
 
+# iTerm2 tab: short hostname in the host colour. Inside tmux the escapes need
+# passthrough to reach iTerm2; @host_tab lets tmux repaint the tab on reattach.
+DISABLE_AUTO_TITLE=true
+_host_tab_seq=$(~/.local/bin/term-tab ${HOST%%.*} $_host_cursor 2>/dev/null)
+if [[ -n $TMUX ]]; then
+    _host_tab_seq=$'\ePtmux;'${_host_tab_seq//$'\e'/$'\e\e'}$'\e\\'
+    tmux set -gq @host_tab "$_host_cursor"
+fi
+_set_host_tab() { print -rn -- "$_host_tab_seq"; }
+precmd_functions+=(_set_host_tab)
+
 # Prompt: git clone https://github.com/agkozak/agkozak-zsh-prompt ~/.zsh/agkozak-zsh-prompt
 _zsh_src "$HOME/.zsh/agkozak-zsh-prompt/agkozak-zsh-prompt.plugin.zsh"
 
