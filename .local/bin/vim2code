@@ -69,6 +69,8 @@ def translate_vimrc_to_vscode(vimrc_content):
         'nnoremap': 'vim.normalModeKeyBindingsNonRecursive',
         'vmap': 'vim.visualModeKeyBindings',
         'vnoremap': 'vim.visualModeKeyBindingsNonRecursive',
+        'xmap': 'vim.visualModeKeyBindings',
+        'xnoremap': 'vim.visualModeKeyBindingsNonRecursive',
         'imap': 'vim.insertModeKeyBindings',
         'inoremap': 'vim.insertModeKeyBindingsNonRecursive',
         'omap': 'vim.operatorPendingModeKeyBindings',
@@ -113,7 +115,7 @@ def translate_vimrc_to_vscode(vimrc_content):
 
         # Handle Key Mappings
         # Regex captures: (mode)(nore)?map (expr)? (before) (after)
-        map_match = re.match(r'^([nvioc])(nore)?map\s+(<expr>\s+)?(\S+)\s+(.+)$', line)
+        map_match = re.match(r'^([nvxioc])(nore)?map\s+(<expr>\s+)?(\S+)\s+(.+)$', line)
         
         if map_match:
             mode_char, nore, expr, before_str, after_str = map_match.groups()
@@ -122,8 +124,13 @@ def translate_vimrc_to_vscode(vimrc_content):
             # Strip trailing inline comments (space followed by ")
             after_str = re.sub(r'\s+".*$', '', after_str).strip()
             
+            # VSCodeVim has no :keepjumps; fall back to the plain keys
+            keepjumps = re.match(r"^<Cmd>execute 'keepjumps normal! ' \.\. v:count1 \.\. '([^']*)'<CR>$", after_str)
+            if keepjumps:
+                after_str = keepjumps.group(1)
+
             # Filter out limitations of the VSCodeVim emulator
-            if mode_char == 'c' or expr or '!pbcopy' in after_str or 'getcmdtype' in after_str:
+            if mode_char == 'c' or expr or '!pbcopy' in after_str or 'getcmdtype' in after_str or after_str.startswith('<Cmd>'):
                 unsupported_lines.append(f"Line {line_num}: {line}")
                 continue
                 

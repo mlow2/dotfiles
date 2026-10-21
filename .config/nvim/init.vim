@@ -142,13 +142,21 @@ vnoremap k gk
 onoremap H ^
 onoremap L $
 
-" Paragraph jumping with screen centering
-nnoremap K {zz
-nnoremap J }zz
+" Paragraph jumping with screen centering; keepjumps so hops stay out of the Ctrl-o list
+nnoremap K <Cmd>execute 'keepjumps normal! ' .. v:count1 .. '{zz'<CR>
+nnoremap J <Cmd>execute 'keepjumps normal! ' .. v:count1 .. '}zz'<CR>
 vnoremap K {zz
 vnoremap J }zz
 onoremap K {
 onoremap J }
+
+" Swap mark keys: home-row ' jumps to the exact column, ` to the line
+nnoremap ' `
+nnoremap ` '
+xnoremap ' `
+xnoremap ` '
+onoremap ' `
+onoremap ` '
 
 " File top/bottom jumping with screen centering
 nnoremap gg ggzz

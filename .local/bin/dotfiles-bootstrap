@@ -121,6 +121,9 @@ Behavior:
   * Fails loudly when local HEAD has diverged from origin (e.g. unpushed
     + remote-altered history). Resolve manually with `dotfiles rebase`
     or `dotfiles log HEAD...origin/<branch>` before re-running.
+  * Untracked files are ignored (info/exclude is `*`), so `dotfiles add .`
+    cannot stage private files. Track a new file with `dotfiles add -f <file>`.
+  * ~/.bash_secrets and ~/.zsh_secrets are kept at mode 600.
 USAGE
 }
 
@@ -200,6 +203,14 @@ ensure_repo() {
             | grep -qx '+refs/heads/\*:refs/remotes/origin/\*'; then
         log "Configuring fetch refspec on origin"
         dotfiles config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    fi
+
+    # Ignore all untracked files so a stray `dotfiles add .` cannot stage ~/.ssh and the like.
+    local exclude="$GIT_DIR/info/exclude"
+    if ! grep -Fqx '*' "$exclude" 2>/dev/null; then
+        mkdir -p "$GIT_DIR/info"
+        printf '*\n' >> "$exclude"
+        log "Ignoring all untracked files via $exclude (track new files with: dotfiles add -f)"
     fi
 }
 
@@ -451,6 +462,9 @@ install_bash() {
         cp "$HOME/.bash_secrets.example" "$HOME/.bash_secrets"
         log "Seeded ~/.bash_secrets from .bash_secrets.example (edit it for this machine)"
     fi
+    if [ -f "$HOME/.bash_secrets" ]; then
+        chmod 600 "$HOME/.bash_secrets"
+    fi
 
     # Guarantee .bashrc sources .bash_common, even if the user's local
     # .bashrc was kept (e.g. a distro default that isn't tracked).
@@ -484,6 +498,9 @@ install_zsh() {
     log "Component: zsh"
     install_localbin
     checkout_files .zsh_common
+    if [ -f "$HOME/.zsh_secrets" ]; then
+        chmod 600 "$HOME/.zsh_secrets"
+    fi
 
     local zrc="$HOME/.zshrc"
 
