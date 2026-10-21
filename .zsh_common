@@ -61,10 +61,10 @@ _zsh_src() {
 # still shows where it runs under a TUI. The cursor uses OSC 12, which tmux
 # tracks per pane. Bright red marks any host not listed here.
 case ${HOST%%.*} in
-    m5air) _host_colour=green;   _host_cursor='#5fd75f'; AGKOZAK_USER_HOST_DISPLAY=0 ;;
-    magpu) _host_colour=magenta; _host_cursor='#d75fff' ;;
-    # next named server: cyan, '#5fd7ff'
-    *)     _host_colour=red;     _host_cursor='#ff5f5f' ;;
+    m5air)      _host_colour=green;   _host_cursor='#5fd75f'; AGKOZAK_USER_HOST_DISPLAY=0 ;;
+    magpu)      _host_colour=magenta; _host_cursor='#d75fff' ;;
+    miniserver) _host_colour=cyan;    _host_cursor='#5fd7ff' ;;
+    *)          _host_colour=red;     _host_cursor='#ff5f5f' ;;
 esac
 AGKOZAK_COLORS_USER_HOST=$_host_colour
 _set_host_cursor() { printf '\e]12;%s\a' "$_host_cursor"; }

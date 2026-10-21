@@ -359,9 +359,9 @@ checkout_files() {
 # the bash and zsh components install it. It is a tracked file in the repo.
 install_localbin() {
     mkdir -p "$HOME/.local/bin"
-    checkout_files .local/bin/clip
-    chmod +x "$HOME/.local/bin/clip"
-    log "Installed ~/.local/bin/clip"
+    checkout_files .local/bin/clip .local/bin/term-tab
+    chmod +x "$HOME/.local/bin/clip" "$HOME/.local/bin/term-tab"
+    log "Installed ~/.local/bin/clip and term-tab"
 }
 
 # ---------- components ----------

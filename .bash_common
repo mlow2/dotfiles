@@ -49,12 +49,20 @@ export GIT_PS1_SHOWUPSTREAM="auto"
 # Same scheme as .zsh_common: prompt host colour and OSC 12 cursor colour keyed
 # by hostname; bright red for any host not listed here.
 case ${HOSTNAME%%.*} in
-    magpu) _host_colour='01;35'; _host_cursor='#d75fff' ;;
-    # next named server: cyan '01;36', '#5fd7ff'
-    *)     _host_colour='01;91'; _host_cursor='#ff5f5f' ;;
+    magpu)      _host_colour='01;35'; _host_cursor='#d75fff' ;;
+    miniserver) _host_colour='01;36'; _host_cursor='#5fd7ff' ;;
+    *)          _host_colour='01;91'; _host_cursor='#ff5f5f' ;;
 esac
 _set_host_cursor() { printf '\033]12;%s\007' "$_host_cursor"; }
-PROMPT_COMMAND="_set_host_cursor${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+
+# iTerm2 tab: short hostname in the host colour, as in .zsh_common.
+_host_tab_seq=$(~/.local/bin/term-tab "${HOSTNAME%%.*}" "$_host_cursor" 2>/dev/null)
+if [ -n "$TMUX" ]; then
+    _host_tab_seq=$'\ePtmux;'${_host_tab_seq//$'\e'/$'\e\e'}$'\e\\'
+    tmux set -gq @host_tab "$_host_cursor"
+fi
+_set_host_tab() { printf '%s' "$_host_tab_seq"; }
+PROMPT_COMMAND="_set_host_cursor;_set_host_tab${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 
 # Compressed prompt: host in its colour + green CWD basename + cyan git status.
 # Example: magpu my_project|main*+ $
