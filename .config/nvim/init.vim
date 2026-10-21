@@ -177,3 +177,17 @@ nnoremap N Nzz
 
 " Center the screen immediately after hitting Enter on a new search
 cnoremap <expr> <CR> getcmdtype() =~ '[/?]' ? "<CR>zz" : "<CR>"
+
+" ==============================================================================
+" >>>                              MARKDOWN                                  <<<
+" ==============================================================================
+
+" Fold on headings (za/zc/zo per section); files open unfolded
+let g:markdown_folding = 1
+autocmd FileType markdown setlocal foldlevel=99
+
+" gO outline window: <CR> jumps and closes the outline, q closes it
+autocmd FileType qf if exists('w:qf_toc')
+      \ | nnoremap <buffer> <CR> <CR><Cmd>lclose<CR>
+      \ | nnoremap <buffer> q <Cmd>lclose<CR>
+      \ | endif

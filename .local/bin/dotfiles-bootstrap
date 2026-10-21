@@ -98,6 +98,7 @@ Components (any combination):
                  overwrites ~/.gitconfig.
   --claude       Installs the Claude Code status line script and points
                  ~/.claude/settings.json at it (Claude need not be installed yet).
+                 On macOS with iTerm2, also links ~/.config/iterm2/cc-status.
   --interactive  Force interactive prompts even when other flags are passed
   --help, -h     Show this help and exit
 
@@ -621,6 +622,17 @@ PY
 }
 EOF
         log "Created $settings with the status line wired."
+    fi
+
+    # The hooks in settings.json (tracked in aiconf) call this iTerm2-shipped binary.
+    local cc_status_src="/Applications/iTerm.app/Contents/Resources/utilities/cc-status"
+    local cc_status="$HOME/.config/iterm2/cc-status"
+    if [ -x "$cc_status_src" ]; then
+        mkdir -p "$(dirname "$cc_status")"
+        ln -sfn "$cc_status_src" "$cc_status"
+        log "Linked $cc_status to iTerm2's cc-status"
+    else
+        warn "iTerm2 cc-status not found; Claude Code hooks calling $cc_status will fail until it exists."
     fi
 
     if command -v claude >/dev/null 2>&1; then
