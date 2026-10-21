@@ -1,0 +1,41 @@
+# Shared git config, tracked in the dotfiles repo.
+# Host-specific settings (identity, credential helper, includeIf) stay in ~/.gitconfig.
+[alias]
+	logline = log --oneline --graph --decorate
+	last = log -1 --decorate
+	pp = !git pull && git push
+	commitall = "!func(){ git add -u && git commit -aqm \"$1\" && git pull -q --no-progress && git push -q; }; func"
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[push]
+	autoSetupRemote = true
+[fetch]
+	prune = true
+[rerere]
+	enabled = true
+[rebase]
+	autoStash = true
+	updateRefs = true
+[merge]
+	conflictStyle = zdiff3
+[branch]
+	sort = -committerdate
+[commit]
+	verbose = true
+[help]
+	autocorrect = prompt
+[log]
+	date = iso
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	side-by-side = true
+	line-numbers = true
+[diff]
+	algorithm = histogram
+	colorMoved = default

@@ -26,12 +26,17 @@ BACKUP_DIR="$BACKUP_ROOT/$TIMESTAMP"
 ZSH_BLOCK_BEGIN="# >>> dotfiles (managed) >>>"
 ZSH_BLOCK_END="# <<< dotfiles (managed) <<<"
 
+# Include line we prepend to ~/.gitconfig; the common file is tracked, the
+# host file is not.
+GIT_INCLUDE_PATH='~/.gitconfig_common'
+
 # Component flags (0 = skip, 1 = install/update)
 INSTALL_VIM=0
 INSTALL_NVIM=0
 INSTALL_TMUX=0
 INSTALL_BASH=0
 INSTALL_ZSH=0
+INSTALL_GIT=0
 INSTALL_CLAUDE=0
 INTERACTIVE=0
 
@@ -75,7 +80,7 @@ Usage:
   dotfiles-bootstrap [component ...] Non-interactive; install only the listed components
 
 Components (any combination):
-  --all          Vim + Neovim + Tmux + (your login shell) + Claude status line
+  --all          Vim + Neovim + Tmux + (your login shell) + Git + Claude status line
   --vim          .vimrc, ~/.vim plugin dirs, vim-commentary, vscode_vim.jsonc
   --nvim         .config/nvim/init.vim, ~/.local/state/nvim dirs, vscode_vim.jsonc.
                  Needs nvim >= 0.10 (built-in gc commenting, no 'pastetoggle').
@@ -87,6 +92,10 @@ Components (any combination):
                  ~/.local/bin, the `dotfiles` alias, sources .zsh_common) and
                  installs clip. Never tracks/overwrites ~/.zshrc. Does NOT touch
                  ~/.bashrc. oh-my-zsh safe.
+  --git          .gitconfig_common; prepends an [include] of it to ~/.gitconfig
+                 so host-local settings further down (identity, credential
+                 helper, includeIf) override the shared ones. Never tracks or
+                 overwrites ~/.gitconfig.
   --claude       Installs the Claude Code status line script and points
                  ~/.claude/settings.json at it (Claude need not be installed yet).
   --interactive  Force interactive prompts even when other flags are passed
@@ -123,7 +132,7 @@ parse_args() {
     fi
     while [ $# -gt 0 ]; do
         case "$1" in
-            --all)         INSTALL_VIM=1; INSTALL_NVIM=1; INSTALL_TMUX=1; INSTALL_CLAUDE=1
+            --all)         INSTALL_VIM=1; INSTALL_NVIM=1; INSTALL_TMUX=1; INSTALL_GIT=1; INSTALL_CLAUDE=1
                            # Configure the login shell, whichever it is.
                            if [ "$(detect_login_shell)" = "zsh" ]; then
                                INSTALL_ZSH=1
@@ -135,6 +144,7 @@ parse_args() {
             --tmux)        INSTALL_TMUX=1 ;;
             --bash)        INSTALL_BASH=1 ;;
             --zsh)         INSTALL_ZSH=1 ;;
+            --git)         INSTALL_GIT=1 ;;
             --claude)      INSTALL_CLAUDE=1 ;;
             --interactive) INTERACTIVE=1 ;;
             --help|-h)     usage; exit 0 ;;
@@ -163,6 +173,8 @@ run_interactive_prompts() {
     reply="${reply:-$def_bash}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_BASH=1 || INSTALL_BASH=0
     read -r -p "  Configure zsh  (~/.zshrc, append)? (y/n) [$def_zsh] " reply
     reply="${reply:-$def_zsh}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_ZSH=1 || INSTALL_ZSH=0
+    read -r -p "  Install/update shared git config?  (y/n) [y] " reply
+    reply="${reply:-y}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_GIT=1 || INSTALL_GIT=0
     read -r -p "  Wire Claude Code status line?      (y/n) [y] " reply
     reply="${reply:-y}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_CLAUDE=1 || INSTALL_CLAUDE=0
 }
@@ -512,6 +524,33 @@ ZBLOCK
     log "Appended dotfiles block to ~/.zshrc (backup in $BACKUP_DIR)"
 }
 
+# git: the shared settings live in the tracked .gitconfig_common; ~/.gitconfig
+# stays host-owned (identity, credential helper, includeIf). The include goes
+# at the top of ~/.gitconfig because git applies the last value read, so
+# anything the host file sets below it wins.
+install_git() {
+    log "Component: git"
+    checkout_files .gitconfig_common
+
+    local grc="$HOME/.gitconfig"
+    if [ -f "$grc" ] && git config --file "$grc" --get-all include.path 2>/dev/null \
+            | grep -Fqx "$GIT_INCLUDE_PATH"; then
+        log "~/.gitconfig already includes $GIT_INCLUDE_PATH; leaving it untouched."
+    else
+        backup_file "$grc"
+        {
+            printf '[include]\n\tpath = %s\n' "$GIT_INCLUDE_PATH"
+            [ -f "$grc" ] && cat "$grc"
+        } > "$grc.dotfiles-tmp"
+        mv "$grc.dotfiles-tmp" "$grc"
+        log "Prepended include of $GIT_INCLUDE_PATH to ~/.gitconfig"
+    fi
+
+    if ! command -v delta >/dev/null 2>&1; then
+        warn "delta not on PATH: .gitconfig_common sets core.pager=delta. Install it (brew install git-delta / apt install git-delta)."
+    fi
+}
+
 # Claude Code status line. Installs the tracked script and points
 # ~/.claude/settings.json at it. Works whether or not Claude is installed.
 install_claude() {
@@ -622,6 +661,7 @@ print_compat_notes() {
       allow-passthrough (tmux >= 3.3).
     * nvim: this config targets nvim >= 0.10. It relies on the built-in gc
       commenting maps and omits 'pastetoggle', which newer nvim rejects (E519).
+    * git: .gitconfig_common pages through delta; install git-delta.
     * Claude status line needs `jq`; install it if the line shows up empty.
     * Restart your shell (or `source` the rc file) to pick up PATH changes.
 NOTES
@@ -637,7 +677,8 @@ main() {
 
     if [ "$INSTALL_VIM" -eq 0 ] && [ "$INSTALL_NVIM" -eq 0 ] \
        && [ "$INSTALL_TMUX" -eq 0 ] && [ "$INSTALL_BASH" -eq 0 ] \
-       && [ "$INSTALL_ZSH" -eq 0 ] && [ "$INSTALL_CLAUDE" -eq 0 ]; then
+       && [ "$INSTALL_ZSH" -eq 0 ] && [ "$INSTALL_GIT" -eq 0 ] \
+       && [ "$INSTALL_CLAUDE" -eq 0 ]; then
         log "Nothing selected. Exiting without changes."
         exit 0
     fi
@@ -650,6 +691,7 @@ main() {
     [ "$INSTALL_TMUX"   -eq 1 ] && install_tmux
     [ "$INSTALL_BASH"   -eq 1 ] && install_bash
     [ "$INSTALL_ZSH"    -eq 1 ] && install_zsh
+    [ "$INSTALL_GIT"    -eq 1 ] && install_git
     [ "$INSTALL_CLAUDE" -eq 1 ] && install_claude
 
     finalize_head
