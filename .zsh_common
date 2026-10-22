@@ -58,8 +58,9 @@ _zsh_src() {
 
 # ---------- host identity ----------
 # Prompt host colour and terminal cursor colour keyed by hostname, so the shell
-# still shows where it runs under a TUI. The cursor uses OSC 12, which tmux
-# tracks per pane. Bright red marks any host not listed here.
+# still shows where it runs under a TUI. Inside tmux the cursor colour is a tmux
+# option, otherwise tmux resends OSC 12 on every redrawn line and iTerm2 lags.
+# Bright red marks any host not listed here.
 case ${HOST%%.*} in
     m5air)      _host_colour=green;   _host_cursor='#5fd75f'; AGKOZAK_USER_HOST_DISPLAY=0 ;;
     magpu)      _host_colour=magenta; _host_cursor='#d75fff' ;;
@@ -67,8 +68,10 @@ case ${HOST%%.*} in
     *)          _host_colour=red;     _host_cursor='#ff5f5f' ;;
 esac
 AGKOZAK_COLORS_USER_HOST=$_host_colour
-_set_host_cursor() { printf '\e]12;%s\a' "$_host_cursor"; }
-precmd_functions+=(_set_host_cursor)
+if ! { [[ -n $TMUX ]] && tmux set -g cursor-colour "$_host_cursor" 2>/dev/null; }; then
+    _set_host_cursor() { printf '\e]12;%s\a' "$_host_cursor"; }
+    precmd_functions+=(_set_host_cursor)
+fi
 
 # iTerm2 tab: short hostname in the host colour. Inside tmux the escapes need
 # passthrough to reach iTerm2; @host_tab lets tmux repaint the tab on reattach.

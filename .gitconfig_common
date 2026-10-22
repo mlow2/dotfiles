@@ -17,7 +17,8 @@
 	autoStash = true
 	updateRefs = true
 [merge]
-	conflictStyle = zdiff3
+	# Old git rejects zdiff3. dotfiles-bootstrap sets it in ~/.gitconfig on git >= 2.35
+	conflictStyle = diff3
 [branch]
 	sort = -committerdate
 [commit]

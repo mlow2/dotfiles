@@ -1,7 +1,8 @@
 #!/bin/sh
-# term-tab TITLE '#rrggbb' - print escapes setting the iTerm2 tab title and colour.
+# term-tab TITLE '#rrggbb' - print escapes setting the iTerm2 tab title, tab colour and user.host.
 hex=${2#\#}
 [ ${#hex} -eq 6 ] || exit 0
 r=${hex%????} g=${hex#??} g=${g%??} b=${hex#????}
 printf '\033]0;%s\007\033]6;1;bg;red;brightness;%d\007\033]6;1;bg;green;brightness;%d\007\033]6;1;bg;blue;brightness;%d\007' \
     "$1" "0x$r" "0x$g" "0x$b"
+printf '\033]1337;SetUserVar=host=%s\007' "$(printf %s "$1" | base64)"

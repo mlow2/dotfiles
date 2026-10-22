@@ -38,6 +38,8 @@ INSTALL_BASH=0
 INSTALL_ZSH=0
 INSTALL_GIT=0
 INSTALL_CLAUDE=0
+INSTALL_ITERM=0
+INSTALL_TRIDACTYL=0
 INTERACTIVE=0
 
 # ---------- helpers ----------
@@ -57,6 +59,13 @@ detect_login_shell() {
     else
         basename "$(ps -p "$$" -o comm= 2>/dev/null || echo sh)"
     fi
+}
+
+# macOS, or Linux with a graphical session or a graphical boot target.
+is_desktop() {
+    [ "$(uname -s)" = Darwin ] && return 0
+    [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0
+    [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]
 }
 
 # Back up an arbitrary existing file into $BACKUP_DIR, preserving its path
@@ -81,6 +90,7 @@ Usage:
 
 Components (any combination):
   --all          Vim + Neovim + Tmux + (your login shell) + Git + Claude status line
+                 + iTerm2 (macOS only) + Tridactyl (desktops only)
   --vim          .vimrc, ~/.vim plugin dirs, vim-commentary, vscode_vim.jsonc
   --nvim         .config/nvim/init.vim, ~/.local/state/nvim dirs, vscode_vim.jsonc.
                  Needs nvim >= 0.10 (built-in gc commenting, no 'pastetoggle').
@@ -95,10 +105,16 @@ Components (any combination):
   --git          .gitconfig_common; prepends an [include] of it to ~/.gitconfig
                  so host-local settings further down (identity, credential
                  helper, includeIf) override the shared ones. Never tracks or
-                 overwrites ~/.gitconfig.
+                 overwrites ~/.gitconfig. If ~/.gitconfig does not set them,
+                 adds merge.conflictStyle=zdiff3 (git >= 2.35) and
+                 merge.tool=nvimdiff (vimdiff without nvim).
   --claude       Installs the Claude Code status line script and points
                  ~/.claude/settings.json at it (Claude need not be installed yet).
                  On macOS with iTerm2, also links ~/.config/iterm2/cc-status.
+  --iterm        macOS only. .config/iterm2/host_tab_order.py, linked into
+                 iTerm2's Scripts/AutoLaunch so tabs stay sorted by host.
+  --tridactyl    .config/tridactyl/tridactylrc for the Tridactyl Firefox add-on.
+                 Meant for desktops, not headless servers.
   --interactive  Force interactive prompts even when other flags are passed
   --help, -h     Show this help and exit
 
@@ -137,6 +153,8 @@ parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --all)         INSTALL_VIM=1; INSTALL_NVIM=1; INSTALL_TMUX=1; INSTALL_GIT=1; INSTALL_CLAUDE=1
+                           [ "$(uname -s)" = Darwin ] && INSTALL_ITERM=1
+                           is_desktop && INSTALL_TRIDACTYL=1
                            # Configure the login shell, whichever it is.
                            if [ "$(detect_login_shell)" = "zsh" ]; then
                                INSTALL_ZSH=1
@@ -150,6 +168,8 @@ parse_args() {
             --zsh)         INSTALL_ZSH=1 ;;
             --git)         INSTALL_GIT=1 ;;
             --claude)      INSTALL_CLAUDE=1 ;;
+            --iterm)       INSTALL_ITERM=1 ;;
+            --tridactyl)   INSTALL_TRIDACTYL=1 ;;
             --interactive) INTERACTIVE=1 ;;
             --help|-h)     usage; exit 0 ;;
             *)             usage; die "unknown argument: $1" ;;
@@ -181,6 +201,14 @@ run_interactive_prompts() {
     reply="${reply:-y}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_GIT=1 || INSTALL_GIT=0
     read -r -p "  Wire Claude Code status line?      (y/n) [y] " reply
     reply="${reply:-y}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_CLAUDE=1 || INSTALL_CLAUDE=0
+    if [ "$(uname -s)" = Darwin ]; then
+        read -r -p "  Install iTerm2 tab-order script?   (y/n) [y] " reply
+        reply="${reply:-y}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_ITERM=1 || INSTALL_ITERM=0
+    fi
+    local def_desktop=n
+    is_desktop && def_desktop=y
+    read -r -p "  Install Tridactyl config?          (y/n) [$def_desktop] " reply
+    reply="${reply:-$def_desktop}"; [[ $reply =~ ^[Yy]$ ]] && INSTALL_TRIDACTYL=1 || INSTALL_TRIDACTYL=0
 }
 
 # Clone the bare repo on first run; do nothing if it already exists.
@@ -545,7 +573,8 @@ ZBLOCK
 # git: the shared settings live in the tracked .gitconfig_common; ~/.gitconfig
 # stays host-owned (identity, credential helper, includeIf). The include goes
 # at the top of ~/.gitconfig because git applies the last value read, so
-# anything the host file sets below it wins.
+# anything the host file sets below it wins. Settings that depend on the host
+# git version or editor go in ~/.gitconfig itself.
 install_git() {
     log "Component: git"
     checkout_files .gitconfig_common
@@ -562,6 +591,31 @@ install_git() {
         } > "$grc.dotfiles-tmp"
         mv "$grc.dotfiles-tmp" "$grc"
         log "Prepended include of $GIT_INCLUDE_PATH to ~/.gitconfig"
+    fi
+
+    # Every git on the host reads ~/.gitconfig, and git older than 2.35 exits on zdiff3.
+    local g ver major minor old_git=""
+    for g in /usr/bin/git "$(command -v git)"; do
+        ver=$("$g" --version | awk '{print $3}')
+        IFS=. read -r major minor _ <<< "$ver"
+        if (( major * 1000 + minor < 2035 )); then
+            old_git="$g $ver"
+        fi
+    done
+    if [ -n "$old_git" ]; then
+        warn "$old_git is older than 2.35, so merge conflicts use diff3 instead of zdiff3."
+        note "Upgrade on Ubuntu: sudo add-apt-repository ppa:git-core/ppa && sudo apt update && sudo apt install git"
+        note "Then re-run with --git to switch to zdiff3."
+    elif ! git config --file "$grc" --get merge.conflictStyle >/dev/null; then
+        git config --file "$grc" merge.conflictStyle zdiff3
+        log "Set merge.conflictStyle = zdiff3 in ~/.gitconfig"
+    fi
+
+    if ! git config --file "$grc" --get merge.tool >/dev/null; then
+        local tool=vimdiff
+        command -v nvim >/dev/null 2>&1 && tool=nvimdiff
+        git config --file "$grc" merge.tool "$tool"
+        log "Set merge.tool = $tool in ~/.gitconfig"
     fi
 
     if ! command -v delta >/dev/null 2>&1; then
@@ -582,12 +636,14 @@ install_claude() {
         warn "jq not found: the status line renders via jq. Install jq or the line will be blank."
     fi
 
-    local script="$HOME/.local/bin/claude-statusline.sh"
-    local cmd="bash \"$script\""
+    # A tilde path keeps settings.json, which aiconf tracks, the same on every host.
+    local cmd='bash ~/.local/bin/claude-statusline.sh'
     local settings="$HOME/.claude/settings.json"
     mkdir -p "$HOME/.claude"
 
-    if [ -f "$settings" ]; then
+    if [ -f "$settings" ] && grep -Fq "\"$cmd\"" "$settings"; then
+        log "$settings already points statusLine at the tracked script"
+    elif [ -f "$settings" ]; then
         backup_file "$settings"
         if command -v jq >/dev/null 2>&1; then
             local tmp
@@ -643,6 +699,35 @@ EOF
     fi
 }
 
+# iTerm2 runs every script in Scripts/AutoLaunch at startup. The tracked copy
+# stays out of ~/Library so Linux hosts never get that tree.
+install_iterm() {
+    log "Component: iterm"
+    if [ "$(uname -s)" != Darwin ]; then
+        warn "Not macOS; skipping the iTerm2 component."
+        return
+    fi
+    checkout_files .config/iterm2/host_tab_order.py
+
+    local src="$HOME/.config/iterm2/host_tab_order.py"
+    local dest="$HOME/Library/Application Support/iTerm2/Scripts/AutoLaunch/host_tab_order.py"
+    mkdir -p "$(dirname "$dest")"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        backup_file "$dest"
+        rm -f "$dest"
+    fi
+    ln -sfn "$src" "$dest"
+    log "Linked $dest -> $src"
+    note "Needs iTerm2's Python runtime (Scripts > Manage > Install Python Runtime) and a restart of iTerm2."
+}
+
+install_tridactyl() {
+    log "Component: tridactyl"
+    mkdir -p "$HOME/.config/tridactyl"
+    checkout_files .config/tridactyl/tridactylrc
+    note "Tridactyl reads it at Firefox startup once its native messenger is installed (:installnative)."
+}
+
 # ---------- vim2code wiring ----------
 # Bootstrap-time generation only (no git hook). Runs the tracked vim2code
 # (~/.local/bin/vim2code) against the freshly-checked-out config named in $1
@@ -691,6 +776,7 @@ print_compat_notes() {
     * nvim: this config targets nvim >= 0.10. It relies on the built-in gc
       commenting maps and omits 'pastetoggle', which newer nvim rejects (E519).
     * git: .gitconfig_common pages through delta; install git-delta.
+      zdiff3 conflict markers need git >= 2.35.
     * Claude status line needs `jq`; install it if the line shows up empty.
     * Restart your shell (or `source` the rc file) to pick up PATH changes.
 NOTES
@@ -707,7 +793,8 @@ main() {
     if [ "$INSTALL_VIM" -eq 0 ] && [ "$INSTALL_NVIM" -eq 0 ] \
        && [ "$INSTALL_TMUX" -eq 0 ] && [ "$INSTALL_BASH" -eq 0 ] \
        && [ "$INSTALL_ZSH" -eq 0 ] && [ "$INSTALL_GIT" -eq 0 ] \
-       && [ "$INSTALL_CLAUDE" -eq 0 ]; then
+       && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_ITERM" -eq 0 ] \
+       && [ "$INSTALL_TRIDACTYL" -eq 0 ]; then
         log "Nothing selected. Exiting without changes."
         exit 0
     fi
@@ -722,6 +809,8 @@ main() {
     [ "$INSTALL_ZSH"    -eq 1 ] && install_zsh
     [ "$INSTALL_GIT"    -eq 1 ] && install_git
     [ "$INSTALL_CLAUDE" -eq 1 ] && install_claude
+    [ "$INSTALL_ITERM"  -eq 1 ] && install_iterm
+    [ "$INSTALL_TRIDACTYL" -eq 1 ] && install_tridactyl
 
     finalize_head
     quiet_optedout_files
