@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import sys
 
@@ -34,6 +35,18 @@ IGNORED_STATEMENTS = {
     'filetype plugin on', 'filetype plugin off',
     'filetype indent on', 'filetype indent off',
     'filetype plugin indent on', 'filetype plugin indent off',
+    'let g:markdown_folding = 1',
+    'autocmd FileType markdown setlocal foldlevel=99',
+}
+
+# VSCodeVim records { and } as jumps. cursorMove by wrapped line does not,
+# and it steps over closed folds instead of opening them.
+PARAGRAPH_MOVES = {'{': 'prevBlankLine', '}': 'nextBlankLine'}
+
+# vim.useSystemClipboard sends a plain yank to the clipboard.
+CLIP_YANKS = {
+    "y:call system('clip', @0)<CR>": ['y'],
+    ':.w !clip<CR><CR>': ['y', 'y'],
 }
 
 
@@ -62,6 +75,7 @@ def _normalize_option(opt_token):
 def translate_vimrc_to_vscode(vimrc_content):
     settings = {
         "vim.useSystemClipboard": True,
+        "vim.foldfix": True,
     }
 
     mode_maps = {
@@ -80,12 +94,36 @@ def translate_vimrc_to_vscode(vimrc_content):
     for key in mode_maps.values():
         settings[key] = []
 
+    # nvim's markdown ftplugin maps gO to a heading outline
+    settings['vim.normalModeKeyBindingsNonRecursive'].append(
+        {"before": ["g", "O"], "commands": ["workbench.action.gotoSymbol"]})
+
     unsupported_lines = []
 
+    lines = []
     for line_num, line in enumerate(vimrc_content.splitlines(), 1):
         line = line.strip()
+        if line.startswith('\\') and lines:
+            lines[-1] = (lines[-1][0], lines[-1][1] + ' ' + line[1:].strip())
+        else:
+            lines.append((line_num, line))
 
+    if_depth = 0
+    for line_num, line in lines:
         if not line or line.startswith('"'):
+            continue
+
+        # if blocks hold GUI or terminal specific settings
+        if re.match(r'^if\b', line):
+            if if_depth == 0:
+                if_start = (line_num, line)
+            if_depth += 1
+            continue
+        if if_depth:
+            if line == 'endif':
+                if_depth -= 1
+                if if_depth == 0:
+                    unsupported_lines.append(f"Lines {if_start[0]}-{line_num}: {if_start[1]} ... endif")
             continue
 
         # Strip a trailing inline comment for non-mapping lines so that
@@ -124,19 +162,33 @@ def translate_vimrc_to_vscode(vimrc_content):
             # Strip trailing inline comments (space followed by ")
             after_str = re.sub(r'\s+".*$', '', after_str).strip()
             
-            # VSCodeVim has no :keepjumps; fall back to the plain keys
-            keepjumps = re.match(r"^<Cmd>execute 'keepjumps normal! ' \.\. v:count1 \.\. '([^']*)'<CR>$", after_str)
-            if keepjumps:
-                after_str = keepjumps.group(1)
+            keepjumps = re.match(r"^<Cmd>execute 'keepjumps normal! ' \.\. v:count1 \.\. '([{}])(zz)?'<CR>$", after_str)
 
-            # Filter out limitations of the VSCodeVim emulator
-            if mode_char == 'c' or expr or '!pbcopy' in after_str or 'getcmdtype' in after_str or after_str.startswith('<Cmd>'):
+            # Filter out limitations of the VSCodeVim emulator. Its :w ignores
+            # a !cmd and saves the file.
+            if not keepjumps and after_str not in CLIP_YANKS and (
+                    mode_char == 'c' or expr or 'w !' in after_str or 'getcmdtype' in after_str
+                    or after_str.startswith('<Cmd>')):
                 unsupported_lines.append(f"Line {line_num}: {line}")
                 continue
-                
+
             if cmd_type in mode_maps:
+                if keepjumps:
+                    commands = [{"command": "cursorMove",
+                                 "args": {"to": PARAGRAPH_MOVES[keepjumps.group(1)], "by": "wrappedLine"}}]
+                    if keepjumps.group(2):
+                        commands.append({"command": "vim.remap", "args": {"after": ["z", "z"]}})
+                    binding = {
+                        "before": parse_vim_keys(before_str),
+                        "commands": commands
+                    }
+                elif after_str in CLIP_YANKS:
+                    binding = {
+                        "before": parse_vim_keys(before_str),
+                        "after": CLIP_YANKS[after_str]
+                    }
                 # Special handling for command overrides (like :noh)
-                if after_str.startswith(':'):
+                elif after_str.startswith(':'):
                     binding = {
                         "before": parse_vim_keys(before_str),
                         "commands": [after_str.replace('<CR>', '')]
@@ -173,9 +225,9 @@ def generate_output(vimrc_content):
     return "\n".join(output)
 
 # ==========================================
-# Entry point: vim2code [path]   (default: ./.vimrc)
+# Entry point: vim2code [path]   (default: ~/.config/nvim/init.vim)
 # ==========================================
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else ".vimrc"
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.config/nvim/init.vim")
     with open(path, "r") as f:
         print(generate_output(f.read()))
