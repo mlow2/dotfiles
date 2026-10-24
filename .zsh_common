@@ -132,3 +132,11 @@ HISTORY_IGNORE='(*TOKEN=*|*SECRET=*|*KEY=*|*PASS*=*|*[cC][rR][eE][dD]*=*)'
 # login Keychain (stored once via: ssh-add --apple-use-keychain <key>).
 # Decrypting the keychain keys costs ~1.6s, so skip it when the agent is already populated.
 [[ "$OSTYPE" == darwin* ]] && { ssh-add -l >/dev/null 2>&1 || ssh-add -q --apple-load-keychain 2>/dev/null; }
+
+# ---------- sops ----------
+# macOS reads the age key from the login Keychain, stored once via:
+# security add-generic-password -a "$USER" -s sops-age -w
+# Other hosts use the sops default ~/.config/sops/age/keys.txt.
+if [[ "$OSTYPE" == darwin* ]]; then
+    export SOPS_AGE_KEY_CMD="security find-generic-password -a $USER -s sops-age -w"
+fi
