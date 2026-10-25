@@ -26,10 +26,10 @@ if exists('g:neovide')
 endif
 
 " --- General ---
-" Markdown: fold on headings (za/zc/zo per section), files open unfolded.
-" Set before syntax on, which runs the ftplugin for files named on the command line.
-let g:markdown_folding = 1
-autocmd FileType markdown setlocal foldlevel=99
+" Markdown: fold on headings (za/zc/zo per section), code blocks and nested lists, files open unfolded.
+" Treesitter folds, since g:markdown_folding counts # lines in code blocks as headings.
+autocmd FileType markdown setlocal foldmethod=expr foldexpr=v:lua.vim.treesitter.foldexpr()
+      \ foldtext=MarkdownFoldText() foldlevel=99
 
 syntax on                  " Enable syntax highlighting
 filetype plugin indent on   " Enable filetype-based indentation
@@ -187,7 +187,7 @@ cnoremap <expr> <CR> getcmdtype() =~ '[/?]' ? "<CR>zz" : "<CR>"
 " >>>                              MARKDOWN                                  <<<
 " ==============================================================================
 
-" Heading folds are set in General, before syntax on
+" Markdown folds are set in General
 
 " gO outline window: <CR> jumps and closes the outline, q closes it
 autocmd FileType qf if exists('w:qf_toc')
