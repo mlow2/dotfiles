@@ -106,8 +106,9 @@ Components (any combination):
                  so host-local settings further down (identity, credential
                  helper, includeIf) override the shared ones. Never tracks or
                  overwrites ~/.gitconfig. If ~/.gitconfig does not set them,
-                 adds merge.conflictStyle=zdiff3 (git >= 2.35) and
-                 merge.tool=nvimdiff (vimdiff without nvim).
+                 adds merge.conflictStyle=zdiff3 (git >= 2.35),
+                 merge.tool=nvimdiff (vimdiff without nvim), and on Linux a
+                 store credential helper for https://git.overleaf.com.
   --claude       Installs the Claude Code status line script and points
                  ~/.claude/settings.json at it (Claude need not be installed yet).
                  On macOS with iTerm2, also links ~/.config/iterm2/cc-status.
@@ -604,6 +605,15 @@ install_git() {
         command -v nvim >/dev/null 2>&1 && tool=nvimdiff
         git config --file "$grc" merge.tool "$tool"
         log "Set merge.tool = $tool in ~/.gitconfig"
+    fi
+
+    # Overleaf git takes an HTTPS token. macOS keeps it in osxkeychain, other hosts in ~/.git-credentials.
+    if [ "$(uname -s)" != Darwin ] \
+            && ! git config --file "$grc" --get-urlmatch credential.helper https://git.overleaf.com >/dev/null; then
+        git config --file "$grc" credential.https://git.overleaf.com.helper store
+        git config --file "$grc" credential.https://git.overleaf.com.username git
+        log "Set credential.helper = store for https://git.overleaf.com in ~/.gitconfig"
+        note "Save the Overleaf token: git fetch in any Overleaf clone, password = token."
     fi
 
     if ! command -v delta >/dev/null 2>&1; then
