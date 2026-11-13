@@ -65,7 +65,7 @@ _zsh_src() {
 _host=${HOST%%.*}
 [[ $OSTYPE == darwin* ]] && _host=$(scutil --get LocalHostName 2>/dev/null || print -r -- $_host)
 case $_host in
-    m5air)      _host_colour=red;     _host_cursor='#ff5f5f'; AGKOZAK_USER_HOST_DISPLAY=0
+    m5air)      _host_colour=yellow;  _host_cursor='#ffd75f'; AGKOZAK_USER_HOST_DISPLAY=0
                 AGKOZAK_PROMPT_CHAR=( $'\uf179' '%#' ':' ); AGKOZAK_COLORS_PROMPT_CHAR=15 ;;
     magpu)      _host_colour=magenta; _host_cursor='#d75fff' ;;
     miniserver) _host_colour=cyan;    _host_cursor='#5fd7ff' ;;

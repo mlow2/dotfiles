@@ -51,7 +51,7 @@ export GIT_PS1_SHOWUPSTREAM="auto"
 _host=${HOSTNAME%%.*}
 [[ $OSTYPE == darwin* ]] && _host=$(scutil --get LocalHostName 2>/dev/null || printf %s "$_host")
 case $_host in
-    m5air)      _host_colour='01;91'; _host_cursor='#ff5f5f' ;;
+    m5air)      _host_colour='01;93'; _host_cursor='#ffd75f' ;;
     magpu)      _host_colour='01;35'; _host_cursor='#d75fff' ;;
     miniserver) _host_colour='01;36'; _host_cursor='#5fd7ff' ;;
     *)          _host_colour='01;92'; _host_cursor='#5fd75f' ;;
