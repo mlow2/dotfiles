@@ -2,7 +2,7 @@
 # Claude Code status line. Reads the session JSON from stdin, prints one line.
 # Requires: jq (parses the session JSON); git is optional (branch segment).
 #
-# Format:  <dir> | <git-branch> | <model> (<effort>) | <bar> <ctx>% of <max>k       5h <p>% (<reset>) · wk <p>%
+# Format:  <dir> | <session-name> | <git-branch> | <model> (<effort>) | <bar> <ctx>% of <max>k       5h <p>% (<reset>) · wk <p>%
 #
 # The usage segment (5h/weekly rate limits) is right-aligned to the terminal
 # edge using $COLUMNS, which Claude Code exports to this command.
@@ -21,6 +21,7 @@ input=$(cat)
 # One read per line keeps this working on macOS's bash 3.2 (no mapfile).
 fields=$(printf '%s' "$input" | jq -r '
   .workspace.current_dir // .cwd // "",
+  .session_name // "",
   .model.display_name // .model.id // "?",
   .effort.level // "",
   ((.context_window.used_percentage // -1) | round | if . < 0 then "" else tostring end),
@@ -29,12 +30,17 @@ fields=$(printf '%s' "$input" | jq -r '
   (.rate_limits.five_hour.resets_at // 0 | tostring),
   ((.rate_limits.seven_day.used_percentage // -1) | round | if . < 0 then "" else tostring end)
 ')
-{ IFS= read -r dir; IFS= read -r model; IFS= read -r effort
+{ IFS= read -r dir; IFS= read -r name; IFS= read -r model; IFS= read -r effort
   IFS= read -r ctx;  IFS= read -r ctxsize
   IFS= read -r u5;   IFS= read -r u5reset; IFS= read -r u7; } <<< "$fields"
 
 base=${dir##*/}
 branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+# Long fork and branch names keep the root and the leaf.
+if (( ${#name} > 48 )); then
+  name="${name:0:16}...${name: -29}"
+fi
 
 dim=$'\033[2m'; cyan=$'\033[36m'; grn=$'\033[32m'; ylw=$'\033[33m'
 red=$'\033[31m'; mag=$'\033[35m'; rst=$'\033[0m'
@@ -68,6 +74,7 @@ usage_color() {
 vlen() { printf '%s' "$1" | perl -CS -ne 's/\e\[[0-9;]*m//g; print length'; }
 
 line="${cyan}${base}${rst}"
+[ -n "$name" ] && line+="${sep}${ylw}${name}${rst}"
 [ -n "$branch" ] && line+="${sep}${grn}${branch}${rst}"
 line+="${sep}${mag}${model}${rst}"
 [ -n "$effort" ] && line+=" ${dim}(${effort})${rst}"
