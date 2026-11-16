@@ -137,6 +137,11 @@ HISTORY_IGNORE='(*TOKEN=*|*SECRET=*|*KEY=*|*PASS*=*|*[cC][rR][eE][dD]*=*)'
 # login Keychain (stored once via: ssh-add --apple-use-keychain <key>).
 # Decrypting the keychain keys costs ~1.6s, so skip it when the agent is already populated.
 [[ "$OSTYPE" == darwin* ]] && { ssh-add -l >/dev/null 2>&1 || ssh-add -q --apple-load-keychain 2>/dev/null; }
+if [[ "$OSTYPE" != darwin* ]]; then
+    _s="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ssh-agent.socket"
+    if [ ! -S "${SSH_AUTH_SOCK:-}" ] && [ -S "$_s" ]; then export SSH_AUTH_SOCK="$_s"; fi
+    unset _s
+fi
 
 # ---------- sops ----------
 # macOS reads the age key from the login Keychain, stored once via:

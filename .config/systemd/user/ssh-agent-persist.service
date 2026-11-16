@@ -1,0 +1,10 @@
+[Unit]
+Description=Persistent SSH agent
+
+[Service]
+ExecStartPre=-/usr/bin/rm -f %t/ssh-agent.socket
+ExecStart=/usr/bin/ssh-agent -D -t 8h -a %t/ssh-agent.socket
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

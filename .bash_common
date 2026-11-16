@@ -74,6 +74,13 @@ if type __git_ps1 >/dev/null 2>&1; then
     export PS1='\[\033['"$_host_colour"'m\]\h\[\033[00m\] \[\033[01;32m\]\W\[\033[01;36m\]$(__git_ps1 "|%s")\[\033[00m\]\$ '
 fi
 
+# ---------- persistent ssh-agent ----------
+if [[ "$OSTYPE" != darwin* ]]; then
+    _s="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ssh-agent.socket"
+    if [ ! -S "${SSH_AUTH_SOCK:-}" ] && [ -S "$_s" ]; then export SSH_AUTH_SOCK="$_s"; fi
+    unset _s
+fi
+
 # ---------- per-machine overrides ----------
 # .bash_secrets is intentionally untracked; use it for tokens, CUDA paths, etc.
 [ -f ~/.bash_secrets ] && . ~/.bash_secrets
