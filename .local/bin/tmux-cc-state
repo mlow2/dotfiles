@@ -1,0 +1,20 @@
+#!/bin/sh
+[ -n "$TMUX_PANE" ] || exit 0
+
+state=$1
+case $state in
+  running|waiting|done|clear) ;;
+  *) echo "tmux-cc-state: unknown state '$state'" >&2; exit 2 ;;
+esac
+
+if [ "$state" = done ]; then
+  seen=$(tmux display -p -t "$TMUX_PANE" '#{&&:#{pane_active},#{&&:#{window_active},#{session_attached}}}')
+  [ "$seen" = 1 ] && state=clear
+fi
+
+if [ "$state" = clear ]; then
+  tmux set -pu -t "$TMUX_PANE" @cc
+else
+  tmux set -p -t "$TMUX_PANE" @cc "$state"
+fi
+tmux refresh-client -S
