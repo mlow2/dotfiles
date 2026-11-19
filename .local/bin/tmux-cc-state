@@ -1,13 +1,16 @@
 #!/bin/sh
 # Usage: tmux-cc-state running|waiting|done|clear   (Claude hook, hook JSON on stdin)
 #        tmux-cc-state sync <pane>                  (tmux pane-title-changed hook)
+#        tmux-cc-state check                        (tmux focus hooks: clear running after Ctrl-C)
 # A pane shows the state of the session whose name is its title, which covers fleet view and forks.
 PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
 dir=${XDG_CACHE_HOME:-$HOME/.cache}/cc-state
 us=$(printf '\037')
 
 name_of() {
-  [ -f "$1" ] && grep -F '"type":"agent-name"' "$1" | tail -1 | jq -r '.agentName // empty'
+  [ -f "$1" ] && grep -E '"type":"(agent-name|custom-title|ai-title)"' "$1" | jq -rs '
+    def latest(t; k): map(select(.type == t)) | last | .[k] // empty;
+    [latest("agent-name"; "agentName"), latest("custom-title"; "customTitle"), latest("ai-title"; "aiTitle")][0] // empty'
 }
 
 title_of() {
@@ -39,18 +42,41 @@ refresh() {
   done
 }
 
+file_for_pane() {
+  name=$(title_of "$1")
+  [ -n "$name" ] && [ -d "$dir" ] || return 0
+  for f in $(ls -t "$dir"); do
+    case $f in *.tmp) continue ;; esac
+    IFS=$us read -r s tp < "$dir/$f"
+    if [ "$(name_of "$tp")" = "$name" ]; then echo "$dir/$f"; return 0; fi
+  done
+}
+
+interrupted() {
+  tail -n 200 "$1" 2>/dev/null | grep -E '"type":"(user|assistant)"' | tail -1 | jq -e '
+    .type == "user" and (.message.content | if type == "string" then . else (map(.text? // "") | join("")) end
+      | startswith("[Request interrupted by user"))' >/dev/null 2>&1
+}
+
 if [ "$1" = sync ]; then
   pane=$2
-  name=$(title_of "$pane")
+  f=$(file_for_pane "$pane")
   state=
-  if [ -n "$name" ] && [ -d "$dir" ]; then
-    for f in $(ls -t "$dir"); do
-      case $f in *.tmp) continue ;; esac
-      IFS=$us read -r s tp < "$dir/$f"
-      if [ "$(name_of "$tp")" = "$name" ]; then state=$s; break; fi
-    done
-  fi
+  [ -n "$f" ] && IFS=$us read -r state tp < "$f"
   apply "$pane" "$state"
+  refresh
+  exit 0
+fi
+
+if [ "$1" = check ]; then
+  for pane in $(tmux list-panes -a -F '#{pane_id} #{@cc}' 2>/dev/null | awk '$2 == "running" {print $1}'); do
+    f=$(file_for_pane "$pane")
+    [ -n "$f" ] || continue
+    IFS=$us read -r s tp < "$f"
+    interrupted "$tp" || continue
+    rm -f "$f"
+    apply "$pane" clear
+  done
   refresh
   exit 0
 fi
