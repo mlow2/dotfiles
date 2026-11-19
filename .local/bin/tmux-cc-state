@@ -1,5 +1,59 @@
 #!/bin/sh
-[ -n "$TMUX_PANE" ] || exit 0
+# Usage: tmux-cc-state running|waiting|done|clear   (Claude hook, hook JSON on stdin)
+#        tmux-cc-state sync <pane>                  (tmux pane-title-changed hook)
+# A pane shows the state of the session whose name is its title, which covers fleet view and forks.
+PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
+dir=${XDG_CACHE_HOME:-$HOME/.cache}/cc-state
+us=$(printf '\037')
+
+name_of() {
+  [ -f "$1" ] && grep -F '"type":"agent-name"' "$1" | tail -1 | jq -r '.agentName // empty'
+}
+
+title_of() {
+  tmux display -p -t "$1" '#{pane_title}' 2>/dev/null | sed 's/^[^[:alnum:][:space:]]* //'
+}
+
+panes_showing() {
+  tmux list-panes -a -F '#{pane_id} #{pane_title}' 2>/dev/null | awk -v n="$1" '{
+    t = substr($0, length($1) + 2); sub(/^[^[:alnum:][:space:]]+ /, "", t)
+    if (t == n) print $1
+  }'
+}
+
+apply() {
+  s=$2
+  if [ "$s" = done ]; then
+    seen=$(tmux display -p -t "$1" '#{&&:#{pane_active},#{&&:#{window_active},#{session_attached}}}')
+    [ "$seen" = 1 ] && s=clear
+  fi
+  case $s in
+    running|waiting|background|done) tmux set -p -t "$1" @cc "$s" ;;
+    *) tmux set -pu -t "$1" @cc ;;
+  esac
+}
+
+refresh() {
+  tmux list-clients -F '#{client_name}' 2>/dev/null | while read -r c; do
+    tmux refresh-client -S -t "$c"
+  done
+}
+
+if [ "$1" = sync ]; then
+  pane=$2
+  name=$(title_of "$pane")
+  state=
+  if [ -n "$name" ] && [ -d "$dir" ]; then
+    for f in $(ls -t "$dir"); do
+      case $f in *.tmp) continue ;; esac
+      IFS=$us read -r s tp < "$dir/$f"
+      if [ "$(name_of "$tp")" = "$name" ]; then state=$s; break; fi
+    done
+  fi
+  apply "$pane" "$state"
+  refresh
+  exit 0
+fi
 
 state=$1
 case $state in
@@ -7,14 +61,33 @@ case $state in
   *) echo "tmux-cc-state: unknown state '$state'" >&2; exit 2 ;;
 esac
 
-if [ "$state" = done ]; then
-  seen=$(tmux display -p -t "$TMUX_PANE" '#{&&:#{pane_active},#{&&:#{window_active},#{session_attached}}}')
-  [ "$seen" = 1 ] && state=clear
+sid= tp= agent= bg=false
+[ -t 0 ] || input=$(cat)
+if [ -n "$input" ]; then
+  IFS=$us read -r sid tp agent bg <<EOF
+$(printf '%s' "$input" | jq -r '[.session_id // "", .transcript_path // "", .agent_id // "", (any(.background_tasks[]?; .status == "running") | tostring)] | join("\u001f")')
+EOF
 fi
 
-if [ "$state" = clear ]; then
-  tmux set -pu -t "$TMUX_PANE" @cc
-else
-  tmux set -p -t "$TMUX_PANE" @cc "$state"
+[ "$state" = running ] && [ -n "$agent" ] && exit 0
+[ "$state" = done ] && [ "$bg" = true ] && state=background
+
+if [ -n "$sid" ]; then
+  mkdir -p "$dir"
+  if [ "$state" = clear ]; then
+    rm -f "$dir/$sid"
+  else
+    printf '%s%s%s\n' "$state" "$us" "$tp" > "$dir/$sid.tmp" && mv "$dir/$sid.tmp" "$dir/$sid"
+  fi
+  find "$dir" -type f -mtime +7 -delete 2>/dev/null
 fi
-tmux refresh-client -S
+
+name=$(name_of "$tp")
+if [ -n "$name" ]; then
+  panes=$(panes_showing "$name")
+else
+  panes=$TMUX_PANE
+fi
+[ -n "$panes" ] || exit 0
+for p in $panes; do apply "$p" "$state"; done
+refresh
