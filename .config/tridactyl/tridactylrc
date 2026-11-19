@@ -18,6 +18,9 @@ command ctabs tabsort --containers
 bind ,t fillcmdline ctab
 bind ,r fillcmdline rc
 
+" o completions: newest visit first; unvisited bookmarks sink to the bottom
+set historysort recent
+
 " scrolling (revert with :nosmoothscrollwizard)
 smoothscrollwizard
 
