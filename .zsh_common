@@ -56,6 +56,9 @@ _zsh_src() {
 
 (( ${+_comps} )) || { autoload -Uz compinit && compinit; }
 
+bindkey '^F' forward-word
+bindkey '^[f' forward-char
+
 # ---------- host identity ----------
 # Prompt host colour and terminal cursor colour keyed by hostname, so the shell
 # still shows where it runs under a TUI. Inside tmux the cursor colour is a tmux
@@ -104,7 +107,8 @@ _zsh_src /opt/homebrew/opt/zsh-fast-syntax-highlighting/share/zsh-fast-syntax-hi
          /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
          "$HOME/.zsh/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh"
 
-# Ctrl-F / Right accept one word of the suggestion; Ctrl-E / End accept all.
+# Ctrl-F accepts one word of the suggestion, Right and Option-F one character;
+# Ctrl-E / End accept all.
 ZSH_AUTOSUGGEST_ACCEPT_WIDGETS=(end-of-line vi-end-of-line vi-add-eol)
 ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS=(forward-char vi-forward-char forward-word emacs-forward-word
     vi-forward-word vi-forward-word-end vi-forward-blank-word vi-forward-blank-word-end
